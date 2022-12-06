@@ -40,7 +40,7 @@ str_nullterminate(const char *s, size_t len)
     /* Ensure that it contains no null bytes within */
     if (strlen(ret) != len) {
         wasm_runtime_free(ret);
-        errno = EILSEQ;
+        errno = EINVAL;
         return NULL;
     }
     return ret;

@@ -1198,7 +1198,7 @@ wasm_runtime_dump_exec_env_mem_consumption(const WASMExecEnv *exec_env)
         offsetof(WASMExecEnv, wasm_stack.s.bottom) + exec_env->wasm_stack_size;
 
     os_printf("Exec env memory consumption, total size: %u\n", total_size);
-    os_printf("    exec env struct size: %u\n",
+    os_printf("    exec env struct size: %lu\n",
               offsetof(WASMExecEnv, wasm_stack.s.bottom));
 #if WASM_ENABLE_INTERP != 0 && WASM_ENABLE_FAST_INTERP == 0
     os_printf("        block addr cache size: %u\n",
@@ -2540,71 +2540,17 @@ wasm_runtime_init_wasi(WASMModuleInstanceCommon *module_inst,
     }
     argv_environ_inited = true;
 
-    if (!addr_pool_init(apool)) {
-        set_error_buf(error_buf, error_buf_size,
-                      "Init wasi environment failed: "
-                      "init the address pool failed");
-        goto fail;
-    }
-    addr_pool_inited = true;
-
     /* Prepopulate curfds with stdin, stdout, and stderr file descriptors. */
     if (!fd_table_insert_existing(curfds, 0, (stdinfd != -1) ? stdinfd : 0)
         || !fd_table_insert_existing(curfds, 1, (stdoutfd != -1) ? stdoutfd : 1)
         || !fd_table_insert_existing(curfds, 2,
                                      (stderrfd != -1) ? stderrfd : 2)) {
         set_error_buf(error_buf, error_buf_size,
-                      "Init wasi environment failed: init fd table failed");
+                      "Init wasi environment failed: insert fd table failed");
         goto fail;
     }
 
     wasm_fd = 3;
-    for (i = 0; i < dir_count; i++, wasm_fd++) {
-        path = realpath(dir_list[i], resolved_path);
-        if (!path) {
-            if (error_buf)
-                snprintf(error_buf, error_buf_size,
-                         "error while pre-opening directory %s: %d\n",
-                         dir_list[i], errno);
-            goto fail;
-        }
-
-        raw_fd = open(path, O_RDONLY | O_DIRECTORY, 0);
-        if (raw_fd == -1) {
-            if (error_buf)
-                snprintf(error_buf, error_buf_size,
-                         "error while pre-opening directory %s: %d\n",
-                         dir_list[i], errno);
-            goto fail;
-        }
-
-        fd_table_insert_existing(curfds, wasm_fd, raw_fd);
-        fd_prestats_insert(prestats, dir_list[i], wasm_fd);
-    }
-
-    /* addr_pool(textual) -> apool */
-    for (i = 0; i < addr_pool_size; i++) {
-        char *cp, *address, *mask;
-        bool ret = false;
-
-        cp = bh_strdup(addr_pool[i]);
-        if (!cp) {
-            set_error_buf(error_buf, error_buf_size,
-                          "Init wasi environment failed: copy address failed");
-            goto fail;
-        }
-
-        address = strtok(cp, "/");
-        mask = strtok(NULL, "/");
-
-        ret = addr_pool_insert(apool, address, (uint8)(mask ? atoi(mask) : 0));
-        wasm_runtime_free(cp);
-        if (!ret) {
-            set_error_buf(error_buf, error_buf_size,
-                          "Init wasi environment failed: store address failed");
-            goto fail;
-        }
-    }
 
     if (!copy_string_array(ns_lookup_pool, ns_lookup_pool_size, &ns_lookup_buf,
                            &ns_lookup_list, NULL)) {
@@ -2633,8 +2579,6 @@ fail:
         fd_prestats_destroy(prestats);
     if (fd_table_inited)
         fd_table_destroy(curfds);
-    if (addr_pool_inited)
-        addr_pool_destroy(apool);
     if (curfds)
         wasm_runtime_free(curfds);
     if (prestats)
@@ -2872,7 +2816,7 @@ wasm_runtime_destroy_wasi(WASMModuleInstanceCommon *module_inst)
             wasm_runtime_free(wasi_ctx->prestats);
         }
         if (wasi_ctx->addr_pool) {
-            addr_pool_destroy(wasi_ctx->addr_pool);
+            //addr_pool_destroy(wasi_ctx->addr_pool);
             wasm_runtime_free(wasi_ctx->addr_pool);
         }
         if (wasi_ctx->argv_buf)

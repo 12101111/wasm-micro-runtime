@@ -562,12 +562,16 @@ main(int argc, char *argv[])
     wasm_runtime_set_module_reader(module_reader_callback, moudle_destroyer);
 #endif
 
+    clock_t start = clock();
+
     /* load WASM module */
     if (!(wasm_module = wasm_runtime_load(wasm_file_buf, wasm_file_size,
                                           error_buf, sizeof(error_buf)))) {
         printf("%s\n", error_buf);
         goto fail2;
     }
+    clock_t end = clock();
+    printf("wasm load time: %ld us\n", end - start);
 
 #if WASM_ENABLE_LIBC_WASI != 0
     wasm_runtime_set_wasi_args(wasm_module, dir_list, dir_list_size, NULL, 0,
@@ -578,6 +582,7 @@ main(int argc, char *argv[])
                                          ns_lookup_pool_size);
 #endif
 
+    start = clock();
     /* instantiate the module */
     if (!(wasm_module_inst =
               wasm_runtime_instantiate(wasm_module, stack_size, heap_size,
@@ -585,6 +590,8 @@ main(int argc, char *argv[])
         printf("%s\n", error_buf);
         goto fail3;
     }
+    end = clock();
+    printf("wasm instantiate time: %ld us\n", end - start);
 
 #if WASM_ENABLE_DEBUG_INTERP != 0
     if (ip_addr != NULL) {
