@@ -2646,13 +2646,22 @@ try_merge_data_and_text(const uint8 **buf, const uint8 **buf_end,
     uint64 total_size = 0;
     uint32 i;
     uint8 *sections;
+    uint32 literal_size = 0;
+    uint32 text_padding = 0;
 
     if (code_size == 0) {
         return true;
     }
 
+    if (code_size >= 4) {
+        literal_size = *(uint32 *)old_buf;
+    }
+    /* Ensure module->code = buf + 4 + literal_size is 16-byte aligned */
+    text_padding = (16 - ((4 + literal_size) % 16)) % 16;
+
     /* calculate the total memory needed */
-    total_size += align_uint64((uint64)code_size, page_size);
+    total_size +=
+        align_uint64((uint64)code_size + text_padding, page_size);
     for (i = 0; i < module->data_section_count; ++i) {
         total_size +=
             align_uint64((uint64)module->data_sections[i].size, page_size);
@@ -2672,7 +2681,7 @@ try_merge_data_and_text(const uint8 **buf, const uint8 **buf_end,
     }
 
 #ifdef BH_PLATFORM_WINDOWS
-    if (!os_mem_commit(sections, code_size,
+    if (!os_mem_commit(sections, code_size + text_padding,
                        MMAP_PROT_READ | MMAP_PROT_WRITE | MMAP_PROT_EXEC)) {
         os_munmap(sections, (uint32)total_size);
         return false;
@@ -2680,7 +2689,7 @@ try_merge_data_and_text(const uint8 **buf, const uint8 **buf_end,
 #endif
 
     /* change the code part to be executable */
-    if (os_mprotect(sections, code_size,
+    if (os_mprotect(sections, code_size + text_padding,
                     MMAP_PROT_READ | MMAP_PROT_WRITE | MMAP_PROT_EXEC)
         != 0) {
         os_munmap(sections, (uint32)total_size);
@@ -2691,11 +2700,19 @@ try_merge_data_and_text(const uint8 **buf, const uint8 **buf_end,
     module->merged_data_text_sections_size = (uint32)total_size;
 
     /* order not essential just as compiler does: .text section first */
-    *buf = sections;
-    *buf_end = sections + code_size;
-    bh_memcpy_s(sections, (uint32)code_size, old_buf, (uint32)code_size);
-    os_munmap(old_buf, code_size);
-    sections += align_uint((uint32)code_size, page_size);
+    *buf = sections + text_padding;
+    *buf_end = sections + text_padding + code_size;
+    bh_memcpy_s(sections + text_padding, (uint32)code_size, old_buf,
+                (uint32)code_size);
+    if (module->aot_text_mapped) {
+        os_munmap(module->aot_text_mapped, module->aot_text_mapped_size);
+        module->aot_text_mapped = NULL;
+        module->aot_text_mapped_size = 0;
+    }
+    else {
+        os_munmap(old_buf, code_size);
+    }
+    sections += align_uint((uint32)code_size + text_padding, page_size);
 
     /* then migrate .data sections */
     for (i = 0; i < module->data_section_count; ++i) {
@@ -4251,15 +4268,25 @@ aot_load_from_sections(AOTSection *section_list, char *error_buf,
 }
 
 static void
-destroy_sections(AOTSection *section_list, bool destroy_aot_text)
+destroy_sections(AOTSection *section_list, bool destroy_aot_text,
+                 AOTModule *module)
 {
     AOTSection *section = section_list, *next;
     while (section) {
         next = section->next;
         if (destroy_aot_text && section->section_type == AOT_SECTION_TYPE_TEXT
-            && section->section_body)
-            os_munmap((uint8 *)section->section_body,
-                      section->section_body_size);
+            && section->section_body) {
+            if (module && module->aot_text_mapped) {
+                os_munmap(module->aot_text_mapped,
+                          module->aot_text_mapped_size);
+                module->aot_text_mapped = NULL;
+                module->aot_text_mapped_size = 0;
+            }
+            else {
+                os_munmap((uint8 *)section->section_body,
+                          section->section_body_size);
+            }
+        }
         wasm_runtime_free(section);
         section = next;
     }
@@ -4348,32 +4375,48 @@ create_sections(AOTModule *module, const uint8 *buf, uint32 size,
 
             if (section_type == AOT_SECTION_TYPE_TEXT) {
                 if ((section_size > 0) && !module->is_indirect_mode) {
+                    uint32 literal_size = 0;
+                    uint32 padding;
+                    uint8 *aligned_text;
+
                     total_size =
                         (uint64)section_size + aot_get_plt_table_size();
                     total_size = (total_size + 3) & ~((uint64)3);
-                    if (total_size >= UINT32_MAX
+
+                    if (section_size >= 4) {
+                        literal_size = *(uint32 *)p;
+                    }
+                    /* Ensure module->code = section_body + 4 + literal_size
+                       is 16-byte aligned */
+                    padding = (16 - ((4 + literal_size) % 16)) % 16;
+
+                    if (total_size >= UINT32_MAX - padding
                         || !(aot_text =
-                                 loader_mmap((uint32)total_size, true,
+                                 loader_mmap((uint32)total_size + padding, true,
                                              error_buf, error_buf_size))) {
                         wasm_runtime_free(section);
                         goto fail;
                     }
+                    aligned_text = aot_text + padding;
 
 #if (WASM_MEM_DUAL_BUS_MIRROR != 0)
-                    mirrored_text = os_get_dbus_mirror(aot_text);
+                    mirrored_text = os_get_dbus_mirror(aligned_text);
                     bh_assert(mirrored_text != NULL);
                     bh_memcpy_s(mirrored_text, (uint32)total_size,
                                 section->section_body, (uint32)section_size);
                     os_dcache_flush();
 #else
-                    bh_memcpy_s(aot_text, (uint32)total_size,
+                    bh_memcpy_s(aligned_text, (uint32)total_size,
                                 section->section_body, (uint32)section_size);
 #endif
-                    section->section_body = aot_text;
+                    section->section_body = aligned_text;
                     destroy_aot_text = true;
+                    module->aot_text_mapped = aot_text;
+                    module->aot_text_mapped_size =
+                        (uint32)total_size + padding;
 
                     if ((uint32)total_size > section->section_body_size) {
-                        memset(aot_text + (uint32)section_size, 0,
+                        memset(aligned_text + (uint32)section_size, 0,
                                (uint32)total_size - section_size);
                         section->section_body_size = (uint32)total_size;
                     }
@@ -4404,7 +4447,7 @@ create_sections(AOTModule *module, const uint8 *buf, uint32 size,
     return true;
 fail:
     if (section_list)
-        destroy_sections(section_list, destroy_aot_text);
+        destroy_sections(section_list, destroy_aot_text, module);
     return false;
 }
 
@@ -4456,14 +4499,15 @@ load(const uint8 *buf, uint32 size, AOTModule *module,
                          module->is_indirect_mode
                                  || module->merged_data_text_sections
                              ? false
-                             : true);
+                             : true,
+                         module);
         /* aot_unload() won't destroy aot text again */
         module->code = NULL;
     }
     else {
         /* If load_from_sections() succeeds, then aot text is set to
            module->code and will be destroyed in aot_unload() */
-        destroy_sections(section_list, false);
+        destroy_sections(section_list, false, module);
     }
 
 #if 0
@@ -4615,11 +4659,19 @@ aot_unload(AOTModule *module)
 
     if (module->code && !module->is_indirect_mode
         && !module->merged_data_text_sections) {
-        /* The layout is: literal size + literal + code (with plt table) */
-        uint8 *mmap_addr = module->literal - sizeof(uint32);
-        uint32 total_size =
-            sizeof(uint32) + module->literal_size + module->code_size;
-        os_munmap(mmap_addr, total_size);
+        if (module->aot_text_mapped) {
+            os_munmap(module->aot_text_mapped,
+                      module->aot_text_mapped_size);
+            module->aot_text_mapped = NULL;
+            module->aot_text_mapped_size = 0;
+        }
+        else {
+            /* The layout is: literal size + literal + code (with plt table) */
+            uint8 *mmap_addr = module->literal - sizeof(uint32);
+            uint32 total_size =
+                sizeof(uint32) + module->literal_size + module->code_size;
+            os_munmap(mmap_addr, total_size);
+        }
     }
 
 #if defined(BH_PLATFORM_WINDOWS)

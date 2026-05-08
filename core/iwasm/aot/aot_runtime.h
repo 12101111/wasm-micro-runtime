@@ -356,6 +356,10 @@ typedef struct AOTModule {
     uint8 *merged_data_text_sections;
     uint32 merged_data_text_sections_size;
 
+    /* Original mmap address for AOT text section when alignment padding is applied */
+    uint8 *aot_text_mapped;
+    uint32 aot_text_mapped_size;
+
 #if WASM_ENABLE_AOT_STACK_FRAME != 0
     uint32 feature_flags;
 #endif
