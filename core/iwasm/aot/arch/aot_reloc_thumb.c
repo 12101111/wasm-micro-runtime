@@ -62,6 +62,10 @@ void __aeabi_uidivmod(void);
 void __aeabi_ul2d(void);
 void __aeabi_ul2f(void);
 void __aeabi_uldivmod(void);
+void __aeabi_memclr(void);
+void __aeabi_memcpy(void);
+void __aeabi_memmove(void);
+void __aeabi_memset(void);
 void __ashldi3(void);
 void __clzsi2(void);
 void __divdf3(void);
@@ -181,6 +185,10 @@ static SymbolMap target_sym_map[] = {
     REG_SYM(__aeabi_ul2d),
     REG_SYM(__aeabi_ul2f),
     REG_SYM(__aeabi_uldivmod),
+    REG_SYM(__aeabi_memclr),
+    REG_SYM(__aeabi_memcpy),
+    REG_SYM(__aeabi_memmove),
+    REG_SYM(__aeabi_memset),
     REG_SYM(__ashldi3),
     REG_SYM(__clzsi2),
     REG_SYM(__divdi3),
@@ -430,7 +438,7 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
                      | ((lower & 0x7000) >> 4) | (lower & 0x00ff);
             offset = (offset ^ 0x8000) - 0x8000;
 
-            offset += (symbol_addr + reloc_addend);
+            offset += (int32)((intptr_t)symbol_addr + reloc_addend);
 
             if (reloc_type == R_ARM_THM_MOVT_PREL
                 || reloc_type == R_ARM_THM_MOVW_PREL_NC)
