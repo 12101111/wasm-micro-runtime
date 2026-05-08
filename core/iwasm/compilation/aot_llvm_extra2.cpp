@@ -157,7 +157,7 @@ LLVMCreateTargetMachineWithOpts(LLVMTargetRef ctarget, const char *triple,
     auto ol = convert(opt_level);
     bool jit;
     auto cm = convert(code_model, &jit);
-    auto targetmachine = target->createTargetMachine(triple, cpu, features,
+    auto targetmachine = target->createTargetMachine(llvm::Triple(triple), cpu, features,
                                                      opts, rm, cm, ol, jit);
 #if LLVM_VERSION_MAJOR >= 18
     // always place data in normal data section.
