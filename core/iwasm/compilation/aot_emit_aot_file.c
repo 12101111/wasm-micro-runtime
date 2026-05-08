@@ -4068,6 +4068,13 @@ aot_resolve_object_relocation_group(AOTObjectData *obj_data,
                 || !strcmp(relocation->symbol_name, "")
                 || !strcmp(relocation->symbol_name, ".L0 ")
 #endif
+#if LLVM_VERSION_MAJOR >= 22
+                /* cf.
+                 * https://github.com/llvm/llvm-project/commit/dd14eb8242d756f7ac03d003effab289d8950adf
+                 */
+                || str_starts_with(relocation->symbol_name,
+                                   ".promoted_doubles.")
+#endif
                     )) {
             /* change relocation->relocation_addend and
                relocation->symbol_name */
