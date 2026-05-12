@@ -30,8 +30,12 @@
 
 #include "llvm-c/TargetMachine.h"
 #include "llvm-c/LLJIT.h"
-#if WASM_ENABLE_DEBUG_AOT != 0
+#if WASM_ENABLE_DEBUG_AOT != 0 || WASM_ENABLE_PROFILER != 0
 #include "llvm-c/DebugInfo.h"
+#endif
+
+#if WASM_ENABLE_PROFILER != 0
+#include "wa2x_profiler.h"
 #endif
 
 #include "aot_orc_extra.h"
@@ -385,7 +389,7 @@ typedef struct AOTCompContext {
     /* LLVM variables required to emit LLVM IR */
     LLVMContextRef context;
     LLVMBuilderRef builder;
-#if WASM_ENABLE_DEBUG_AOT
+#if WASM_ENABLE_DEBUG_AOT != 0 || WASM_ENABLE_PROFILER != 0
     LLVMDIBuilderRef debug_builder;
     LLVMMetadataRef debug_file;
     LLVMMetadataRef debug_comp_unit;
@@ -544,6 +548,10 @@ typedef struct AOTCompContext {
 
     /* Current frame information for translation */
     AOTCompFrame *aot_frame;
+
+#if WASM_ENABLE_PROFILER != 0
+    Wa2xProfilerProfileInfo *profiler;
+#endif
 } AOTCompContext;
 
 enum {

@@ -16,6 +16,10 @@
 #include "debug/dwarf_extractor.h"
 #endif
 
+#if WASM_ENABLE_PROFILER != 0
+#include "wa2x_profiler.h"
+#endif
+
 static bool
 create_native_symbol(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx);
 static bool
@@ -2741,6 +2745,42 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
     }
 #endif
 
+#if WASM_ENABLE_PROFILER != 0
+    if (option->enable_profiler) {
+        if (!(comp_ctx->debug_builder = LLVMCreateDIBuilder(comp_ctx->module))) {
+            aot_set_last_error("create LLVM Debug Infor builder failed.");
+            goto fail;
+        }
+
+        LLVMAddModuleFlag(
+            comp_ctx->module, LLVMModuleFlagBehaviorWarning, "Debug Info Version",
+            strlen("Debug Info Version"),
+            LLVMValueAsMetadata(LLVMConstInt(LLVMInt32Type(), 3, false)));
+
+        comp_ctx->debug_file = LLVMDIBuilderCreateFile(
+            comp_ctx->debug_builder, "module", strlen("module"), ".", 1);
+        if (!comp_ctx->debug_file) {
+            aot_set_last_error("create debug file failed");
+            goto fail;
+        }
+
+        comp_ctx->debug_comp_unit = LLVMDIBuilderCreateCompileUnit(
+            comp_ctx->debug_builder, LLVMDWARFSourceLanguageC,
+            comp_ctx->debug_file, "WAMR AoT profiler",
+            strlen("WAMR AoT profiler"), false, NULL, 0, 0, NULL, 0,
+            LLVMDWARFEmissionFull, 0, false, false, "/", 1, "", 0);
+        if (!comp_ctx->debug_comp_unit) {
+            aot_set_last_error("create debug compile unit failed");
+            goto fail;
+        }
+
+        if (!(comp_ctx->profiler = profile_info_new("module"))) {
+            aot_set_last_error("create profiler failed.");
+            goto fail;
+        }
+    }
+#endif
+
     if (option->enable_bulk_memory)
         comp_ctx->enable_bulk_memory = true;
 
@@ -3476,9 +3516,14 @@ aot_destroy_comp_context(AOTCompContext *comp_ctx)
     if (comp_ctx->builder)
         LLVMDisposeBuilder(comp_ctx->builder);
 
-#if WASM_ENABLE_DEBUG_AOT != 0
+#if WASM_ENABLE_DEBUG_AOT != 0 || WASM_ENABLE_PROFILER != 0
     if (comp_ctx->debug_builder)
         LLVMDisposeDIBuilder(comp_ctx->debug_builder);
+#endif
+
+#if WASM_ENABLE_PROFILER != 0
+    if (comp_ctx->profiler)
+        profile_info_free(comp_ctx->profiler);
 #endif
 
     if (comp_ctx->orc_thread_safe_context)

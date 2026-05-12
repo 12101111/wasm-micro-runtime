@@ -157,6 +157,14 @@ endif ()
 if (WAMR_BUILD_DEBUG_AOT EQUAL 1)
   add_definitions(-DWASM_ENABLE_DEBUG_AOT=1)
 endif()
+if (WAMR_BUILD_PROFILER EQUAL 1)
+  if (WAMR_BUILD_DEBUG_AOT EQUAL 1)
+    message (FATAL_ERROR "-- WAMR_BUILD_DEBUG_AOT and WAMR_BUILD_PROFILER are mutually exclusive")
+  endif ()
+  add_definitions(-DWASM_ENABLE_PROFILER=1)
+  include_directories(/home/han/Project/runtime/tests/profiler/include)
+  link_directories(/var/tmp/rust/release)
+endif()
 
 # Enable LLVM
 if (NOT WAMR_BUILD_WITH_CUSTOM_LLVM)
@@ -375,6 +383,10 @@ add_library (vmlib
              ${IWASM_GC_SOURCE})
 
 add_library (aotclib ${IWASM_COMPL_SOURCE})
+
+if (WAMR_BUILD_PROFILER EQUAL 1)
+  target_link_libraries (aotclib wa2x_profiler)
+endif ()
 
 add_executable (wamrc main.c)
 check_pie_supported()
