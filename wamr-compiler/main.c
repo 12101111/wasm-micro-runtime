@@ -176,6 +176,7 @@ print_help()
     printf("                            Available features: bounds-checks, ip, func-idx, trap-ip, values.\n");
     printf("  --enable-perf-profiling   Enable function performance profiling\n");
     printf("  --enable-memory-profiling Enable memory usage profiling\n");
+    printf("  --enable-profile          Enable profiler for instruction mapping\n");
     printf("  --xip                     A shorthand of --enable-indirect-mode --disable-llvm-intrinsics\n");
     printf("  --enable-indirect-mode    Enable call function through symbol table but not direct call\n");
     printf("  --enable-gc               Enable GC (Garbage Collection) feature\n");
@@ -563,6 +564,9 @@ main(int argc, char *argv[])
         else if (!strcmp(argv[0], "--enable-memory-profiling")) {
             option.enable_memory_profiling = true;
             option.enable_stack_estimation = true;
+        }
+        else if (!strcmp(argv[0], "--enable-profile")) {
+            option.enable_profiler = true;
         }
         else if (!strcmp(argv[0], "--xip")) {
             option.is_indirect_mode = true;

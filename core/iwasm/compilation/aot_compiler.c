@@ -4019,8 +4019,9 @@ aot_compile_wasm(AOTCompContext *comp_ctx)
         }
     }
 
-#if WASM_ENABLE_DEBUG_AOT != 0
-    LLVMDIBuilderFinalize(comp_ctx->debug_builder);
+#if WASM_ENABLE_DEBUG_AOT != 0 || WASM_ENABLE_PROFILER != 0
+    if (comp_ctx->debug_builder)
+        LLVMDIBuilderFinalize(comp_ctx->debug_builder);
 #endif
 
     /* Disable LLVM module verification for jit mode to speedup
