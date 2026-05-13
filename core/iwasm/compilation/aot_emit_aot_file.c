@@ -72,6 +72,9 @@ struct AOTObjectData {
     AOTObjectDataSection *data_sections;
     uint32 data_sections_count;
 
+    AOTObjectDataSection *debug_sections;
+    uint32 debug_sections_count;
+
     AOTObjectFunc *funcs;
     uint32 func_count;
 
@@ -1206,7 +1209,8 @@ get_string_literal_section_size(AOTCompContext *comp_ctx,
 #endif
 
 static uint32
-get_custom_sections_size(AOTCompContext *comp_ctx, AOTCompData *comp_data);
+get_custom_sections_size(AOTCompContext *comp_ctx, AOTCompData *comp_data,
+                         AOTObjectData *obj_data);
 
 uint32
 aot_get_aot_file_size(AOTCompContext *comp_ctx, AOTCompData *comp_data,
@@ -1265,7 +1269,7 @@ aot_get_aot_file_size(AOTCompContext *comp_ctx, AOTCompData *comp_data,
         size += get_native_symbol_list_size(comp_ctx);
     }
 
-    size_custom_section = get_custom_sections_size(comp_ctx, comp_data);
+    size_custom_section = get_custom_sections_size(comp_ctx, comp_data, obj_data);
     if (size_custom_section > 0) {
         size = align_uint(size, 4);
         size += size_custom_section;
@@ -1659,10 +1663,12 @@ get_string_literal_section_size(AOTCompContext *comp_ctx,
 #endif /* end of WASM_ENABLE_STRINGREF != 0 */
 
 static uint32
-get_custom_sections_size(AOTCompContext *comp_ctx, AOTCompData *comp_data)
+get_custom_sections_size(AOTCompContext *comp_ctx, AOTCompData *comp_data,
+                         AOTObjectData *obj_data)
 {
+    uint32 size = 0;
 #if WASM_ENABLE_LOAD_CUSTOM_SECTION != 0
-    uint32 size = 0, i;
+    uint32 i;
 
     for (i = 0; i < comp_ctx->custom_sections_count; i++) {
         const char *section_name = comp_ctx->custom_sections_wp[i];
@@ -1700,11 +1706,34 @@ get_custom_sections_size(AOTCompContext *comp_ctx, AOTCompData *comp_data)
         /* section content */
         size += length;
     }
+#endif
+
+#if WASM_ENABLE_PROFILER != 0
+    if (comp_ctx->profiler) {
+        uintptr_t profiler_data_len = 0;
+        uint8_t *profiler_data =
+            profile_info_encode(comp_ctx->profiler, &profiler_data_len);
+        if (profiler_data) {
+            size = align_uint(size, 4);
+            size += (uint32)sizeof(uint32) * 3;
+            size += get_string_size(comp_ctx, "profiler");
+            size += (uint32)profiler_data_len;
+            profile_info_encoded_free(profiler_data, profiler_data_len);
+        }
+    }
+
+    if (obj_data->debug_sections_count > 0) {
+        uint32 i;
+        for (i = 0; i < obj_data->debug_sections_count; i++) {
+            size = align_uint(size, 4);
+            size += (uint32)sizeof(uint32) * 3;
+            size += get_string_size(comp_ctx, obj_data->debug_sections[i].name);
+            size += obj_data->debug_sections[i].size;
+        }
+    }
+#endif
 
     return size;
-#else
-    return 0;
-#endif
 }
 
 static bool
@@ -2940,7 +2969,8 @@ aot_emit_string_literal_section(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
 
 static bool
 aot_emit_custom_sections(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
-                         AOTCompData *comp_data, AOTCompContext *comp_ctx)
+                         AOTCompData *comp_data, AOTCompContext *comp_ctx,
+                         AOTObjectData *obj_data)
 {
 #if WASM_ENABLE_LOAD_CUSTOM_SECTION != 0
     uint32 offset = *p_offset, i;
@@ -2980,6 +3010,48 @@ aot_emit_custom_sections(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
     }
 
     *p_offset = offset;
+#endif
+
+#if WASM_ENABLE_PROFILER != 0
+    if (comp_ctx->profiler) {
+        uintptr_t profiler_data_len = 0;
+        uint8_t *profiler_data =
+            profile_info_encode(comp_ctx->profiler, &profiler_data_len);
+        if (profiler_data) {
+            offset = *p_offset;
+            offset = align_uint(offset, 4);
+            EMIT_U32(AOT_SECTION_TYPE_CUSTOM);
+            EMIT_U32(sizeof(uint32) * 1 + get_string_size(comp_ctx, "profiler")
+                     + (uint32)profiler_data_len);
+            EMIT_U32(AOT_CUSTOM_SECTION_PROFILER);
+            EMIT_STR("profiler");
+            bh_memcpy_s(buf + offset, (uint32)(buf_end - buf), profiler_data,
+                        (uint32)profiler_data_len);
+            offset += (uint32)profiler_data_len;
+            profile_info_encoded_free(profiler_data, profiler_data_len);
+            *p_offset = offset;
+        }
+    }
+
+    if (obj_data->debug_sections_count > 0) {
+        uint32 i;
+        for (i = 0; i < obj_data->debug_sections_count; i++) {
+            offset = *p_offset;
+            offset = align_uint(offset, 4);
+            EMIT_U32(AOT_SECTION_TYPE_CUSTOM);
+            EMIT_U32(
+                sizeof(uint32) * 1
+                + get_string_size(comp_ctx, obj_data->debug_sections[i].name)
+                + obj_data->debug_sections[i].size);
+            EMIT_U32(AOT_CUSTOM_SECTION_RAW);
+            EMIT_STR(obj_data->debug_sections[i].name);
+            bh_memcpy_s(buf + offset, (uint32)(buf_end - buf),
+                        obj_data->debug_sections[i].data,
+                        obj_data->debug_sections[i].size);
+            offset += obj_data->debug_sections[i].size;
+            *p_offset = offset;
+        }
+    }
 #endif
 
     return true;
@@ -3446,6 +3518,62 @@ aot_resolve_object_data_sections(AOTObjectData *obj_data)
 
     return true;
 }
+
+#if WASM_ENABLE_PROFILER != 0
+static bool
+aot_resolve_debug_sections(AOTObjectData *obj_data)
+{
+    LLVMSectionIteratorRef sec_itr;
+    char *name;
+    AOTObjectDataSection *debug_section;
+    uint32 sections_count = 0;
+    uint32 size;
+
+    if (!(sec_itr = LLVMObjectFileCopySectionIterator(obj_data->binary))) {
+        aot_set_last_error("llvm get section iterator failed.");
+        return false;
+    }
+    while (!LLVMObjectFileIsSectionIteratorAtEnd(obj_data->binary, sec_itr)) {
+        if ((name = (char *)LLVMGetSectionName(sec_itr))
+            && !strncmp(name, ".debug_", strlen(".debug_"))) {
+            sections_count++;
+        }
+        LLVMMoveToNextSection(sec_itr);
+    }
+    LLVMDisposeSectionIterator(sec_itr);
+
+    if (sections_count > 0) {
+        size = (uint32)sizeof(AOTObjectDataSection) * sections_count;
+        if (!(debug_section = obj_data->debug_sections =
+                  wasm_runtime_malloc(size))) {
+            aot_set_last_error("allocate memory for debug sections failed.");
+            return false;
+        }
+        memset(obj_data->debug_sections, 0, size);
+        obj_data->debug_sections_count = sections_count;
+
+        if (!(sec_itr = LLVMObjectFileCopySectionIterator(obj_data->binary))) {
+            aot_set_last_error("llvm get section iterator failed.");
+            return false;
+        }
+        while (
+            !LLVMObjectFileIsSectionIteratorAtEnd(obj_data->binary, sec_itr)) {
+            if ((name = (char *)LLVMGetSectionName(sec_itr))
+                && !strncmp(name, ".debug_", strlen(".debug_"))) {
+                debug_section->name = name;
+                debug_section->data =
+                    (uint8 *)LLVMGetSectionContents(sec_itr);
+                debug_section->size = (uint32)LLVMGetSectionSize(sec_itr);
+                debug_section++;
+            }
+            LLVMMoveToNextSection(sec_itr);
+        }
+        LLVMDisposeSectionIterator(sec_itr);
+    }
+
+    return true;
+}
+#endif
 
 static bool
 read_stack_usage_file(const AOTCompContext *comp_ctx, const char *filename,
@@ -4356,6 +4484,20 @@ aot_obj_data_destroy(AOTObjectData *obj_data)
         }
         wasm_runtime_free(obj_data->data_sections);
     }
+    if (obj_data->debug_sections) {
+        uint32 i;
+        for (i = 0; i < obj_data->debug_sections_count; i++) {
+            if (obj_data->debug_sections[i].name
+                && obj_data->debug_sections[i].is_name_allocated) {
+                wasm_runtime_free(obj_data->debug_sections[i].name);
+            }
+            if (obj_data->debug_sections[i].data
+                && obj_data->debug_sections[i].is_data_allocated) {
+                wasm_runtime_free(obj_data->debug_sections[i].data);
+            }
+        }
+        wasm_runtime_free(obj_data->debug_sections);
+    }
     if (obj_data->relocation_groups)
         destroy_relocation_groups(obj_data->relocation_groups,
                                   obj_data->relocation_group_count);
@@ -4527,6 +4669,9 @@ aot_obj_data_create(AOTCompContext *comp_ctx)
     if (!aot_resolve_target_info(comp_ctx, obj_data)
         || !aot_resolve_text(obj_data) || !aot_resolve_literal(obj_data)
         || !aot_resolve_object_data_sections(obj_data)
+#if WASM_ENABLE_PROFILER != 0
+        || !aot_resolve_debug_sections(obj_data)
+#endif
         || !aot_resolve_functions(comp_ctx, obj_data)
         || !aot_resolve_object_relocation_groups(obj_data))
         goto fail;
@@ -4599,7 +4744,8 @@ aot_emit_aot_file_buf_ex(AOTCompContext *comp_ctx, AOTCompData *comp_data,
         || !aot_emit_relocation_section(buf, buf_end, &offset, comp_ctx,
                                         comp_data, obj_data)
         || !aot_emit_native_symbol(buf, buf_end, &offset, comp_ctx)
-        || !aot_emit_custom_sections(buf, buf_end, &offset, comp_data, comp_ctx)
+        || !aot_emit_custom_sections(buf, buf_end, &offset, comp_data, comp_ctx,
+                                     obj_data)
 #if WASM_ENABLE_STRINGREF != 0
         || !aot_emit_string_literal_section(buf, buf_end, &offset, comp_data,
                                             comp_ctx)

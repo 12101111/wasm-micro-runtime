@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 
+#define WAMR_PROFILE_FILE_ID 0
+#include "aot_profiler.h"
 #include "aot_compiler.h"
 #include "aot_emit_compare.h"
 #include "aot_emit_conversion.h"
@@ -1027,6 +1029,10 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
         comp_ctx->builder,
         func_ctx->block_stack.block_list_head->llvm_entry_block);
 
+#if WASM_ENABLE_PROFILER != 0
+    comp_ctx->current_debug_func = func_ctx->debug_func;
+#endif
+
     if (comp_ctx->aux_stack_frame_type
         && comp_ctx->call_stack_features.frame_per_function) {
         INT_CONST(func_index_ref,
@@ -1048,6 +1054,10 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
 
         if (comp_ctx->aot_frame) {
             comp_ctx->aot_frame->frame_ip = frame_ip - 1;
+        }
+
+        if (opcode < WASM_OP_GC_PREFIX) {
+            wamr_profile_append_op(comp_ctx, opcode);
         }
 
 #if WASM_ENABLE_DEBUG_AOT != 0
@@ -2458,7 +2468,6 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
             case WASM_OP_MISC_PREFIX:
             {
                 uint32 opcode1;
-
                 read_leb_uint32(frame_ip, frame_ip_end, opcode1);
                 /* opcode1 was checked in loader and is no larger than
                    UINT8_MAX */
@@ -2478,6 +2487,8 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                     goto unsupport_ref_types;
                 }
 #endif
+
+                wamr_profile_append_op(comp_ctx, WASM_OP_MISC_PREFIX << 16 | opcode);
 
                 switch (opcode) {
                     case WASM_OP_I32_TRUNC_SAT_S_F32:
