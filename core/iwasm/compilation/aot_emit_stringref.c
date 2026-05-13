@@ -5,6 +5,8 @@
 
 #if WASM_ENABLE_STRINGREF != 0
 
+#define WAMR_PROFILE_FILE_ID 9
+#include "aot_profiler.h"
 #include "aot_emit_stringref.h"
 #include "aot_emit_exception.h"
 #include "aot_emit_memory.h"

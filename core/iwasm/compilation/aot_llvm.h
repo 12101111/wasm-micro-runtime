@@ -271,7 +271,7 @@ typedef struct AOTFuncContext {
     /* current ip when exception is thrown */
     LLVMValueRef exception_ip_phi;
     LLVMValueRef func_type_indexes;
-#if WASM_ENABLE_DEBUG_AOT != 0
+#if WASM_ENABLE_DEBUG_AOT != 0 || WASM_ENABLE_PROFILER != 0
     LLVMMetadataRef debug_func;
 #endif
 
@@ -551,6 +551,8 @@ typedef struct AOTCompContext {
 
 #if WASM_ENABLE_PROFILER != 0
     Wa2xProfilerProfileInfo *profiler;
+    uint32 profiler_line_no;
+    LLVMMetadataRef current_debug_func;
 #endif
 } AOTCompContext;
 

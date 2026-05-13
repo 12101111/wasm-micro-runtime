@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 
+#define WAMR_PROFILE_FILE_ID 1
+#include "aot_profiler.h"
 #include "aot_llvm.h"
 #include "aot_llvm_extra2.h"
 #include "aot_compiler.h"
@@ -296,6 +298,10 @@ aot_build_precheck_function(AOTCompContext *comp_ctx, LLVMModuleRef module,
     LLVMBasicBlockRef stack_bound_check_block = NULL;
     LLVMBasicBlockRef call_wrapped_func_block = NULL;
     LLVMValueRef *params = NULL;
+#if WASM_ENABLE_PROFILER != 0
+    LLVMMetadataRef saved_debug_func = comp_ctx->current_debug_func;
+    comp_ctx->current_debug_func = NULL;
+#endif
 
     begin = LLVMAppendBasicBlockInContext(comp_ctx->context, precheck_func,
                                           "begin");
@@ -565,11 +571,17 @@ aot_build_precheck_function(AOTCompContext *comp_ctx, LLVMModuleRef module,
         }
     }
 
+#if WASM_ENABLE_PROFILER != 0
+    comp_ctx->current_debug_func = saved_debug_func;
+#endif
     return true;
 fail:
     if (params != NULL) {
         wasm_runtime_free(params);
     }
+#if WASM_ENABLE_PROFILER != 0
+    comp_ctx->current_debug_func = saved_debug_func;
+#endif
     aot_set_last_error("failed to build precheck wrapper function.");
     return false;
 }
@@ -781,6 +793,10 @@ aot_add_llvm_func(AOTCompContext *comp_ctx, LLVMModuleRef module,
     if (comp_ctx->is_jit_mode
         && (func_index % (backend_thread_num * compile_thread_num)
             < backend_thread_num)) {
+#if WASM_ENABLE_PROFILER != 0
+        LLVMMetadataRef saved_debug_func = comp_ctx->current_debug_func;
+        comp_ctx->current_debug_func = NULL;
+#endif
         func_type_wrapper = LLVMFunctionType(VOID_TYPE, NULL, 0, false);
         if (!func_type_wrapper) {
             aot_set_last_error("create LLVM function type failed.");
@@ -806,6 +822,9 @@ aot_add_llvm_func(AOTCompContext *comp_ctx, LLVMModuleRef module,
             aot_set_last_error("llvm build ret failed.");
             goto fail;
         }
+#if WASM_ENABLE_PROFILER != 0
+        comp_ctx->current_debug_func = saved_debug_func;
+#endif
     }
 
 fail:
@@ -1908,6 +1927,9 @@ aot_create_func_context(const AOTCompData *comp_data, AOTCompContext *comp_ctx,
 
     /* Add local variables */
     LLVMPositionBuilderAtEnd(comp_ctx->builder, aot_block->llvm_entry_block);
+
+    wamr_profile_append_func(comp_ctx, func_ctx, NULL,
+                             WAMR_PROFILE_OP_ENTRY_BLOCK);
 
     if (!create_basic_func_context(comp_ctx, func_ctx)) {
         goto fail;

@@ -2,6 +2,8 @@
  * Copyright (C) 2024 Amazon Inc.  All rights reserved.
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
+#define WAMR_PROFILE_FILE_ID 8
+#include "aot_profiler.h"
 #include "aot_stack_frame_comp.h"
 #include "aot_emit_exception.h"
 

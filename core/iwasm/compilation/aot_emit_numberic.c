@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 
+#define WAMR_PROFILE_FILE_ID 10
+#include "aot_profiler.h"
 #include "aot_emit_numberic.h"
 #include "aot_emit_exception.h"
 #include "aot_emit_control.h"
