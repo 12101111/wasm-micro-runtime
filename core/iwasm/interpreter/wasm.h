@@ -708,6 +708,10 @@ struct WASMFunction {
     uint32 max_block_num;
     uint32 code_size;
     uint8 *code;
+#if WASM_ENABLE_WAMR_COMPILER != 0 || WASM_ENABLE_PROFILER != 0
+    uint32 code_offset;
+    uint32 local_start_offset;
+#endif
 #if WASM_ENABLE_FAST_INTERP != 0
     uint32 code_compiled_size;
     uint8 *code_compiled;
@@ -1022,7 +1026,7 @@ struct WASMModule {
 
 #if WASM_ENABLE_DEBUG_INTERP != 0 || WASM_ENABLE_FAST_JIT != 0  \
     || WASM_ENABLE_DUMP_CALL_STACK != 0 || WASM_ENABLE_JIT != 0 \
-    || WASM_ENABLE_WAMR_COMPILER != 0
+    || WASM_ENABLE_WAMR_COMPILER != 0 || WASM_ENABLE_PROFILER != 0
     uint8 *load_addr;
     uint64 load_size;
 #endif

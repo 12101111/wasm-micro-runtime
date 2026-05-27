@@ -1929,7 +1929,8 @@ aot_create_func_context(const AOTCompData *comp_data, AOTCompContext *comp_ctx,
     LLVMPositionBuilderAtEnd(comp_ctx->builder, aot_block->llvm_entry_block);
 
     wamr_profile_append_func(comp_ctx, func_ctx, NULL,
-                             WAMR_PROFILE_OP_ENTRY_BLOCK);
+                             WAMR_PROFILE_OP_ENTRY_BLOCK,
+                             func_ctx->aot_func->local_start_offset);
 
     if (!create_basic_func_context(comp_ctx, func_ctx)) {
         goto fail;

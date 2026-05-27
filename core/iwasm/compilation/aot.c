@@ -416,6 +416,10 @@ aot_create_funcs(const WASMModule *module, uint32 pointer_size)
         aot_func->local_types_wp = func->local_types;
         aot_func->code = func->code;
         aot_func->code_size = func->code_size;
+#if WASM_ENABLE_WAMR_COMPILER != 0 || WASM_ENABLE_PROFILER != 0
+        aot_func->code_offset = func->code_offset;
+        aot_func->local_start_offset = func->local_start_offset;
+#endif
 
         /* Resolve local offsets */
         for (j = 0; j < func_type->param_count; j++) {

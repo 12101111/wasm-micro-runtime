@@ -3976,6 +3976,10 @@ load_function_section(const uint8 *buf, const uint8 *buf_end,
              * func->code = code_body_cp;
              */
             func->code = (uint8 *)p_code;
+#if WASM_ENABLE_WAMR_COMPILER != 0 || WASM_ENABLE_PROFILER != 0
+            func->code_offset = (uint32)(p_code - module->load_addr);
+            func->local_start_offset = (uint32)(p_code_save - module->load_addr);
+#endif
 #if WASM_ENABLE_GC != 0
             func->type_idx = type_index_org;
 #endif
@@ -7090,7 +7094,8 @@ wasm_loader_load(uint8 *buf, uint32 size,
     }
 
 #if WASM_ENABLE_DEBUG_INTERP != 0 || WASM_ENABLE_FAST_JIT != 0 \
-    || WASM_ENABLE_DUMP_CALL_STACK != 0 || WASM_ENABLE_JIT != 0
+    || WASM_ENABLE_DUMP_CALL_STACK != 0 || WASM_ENABLE_JIT != 0 \
+    || WASM_ENABLE_WAMR_COMPILER != 0 || WASM_ENABLE_PROFILER != 0
     module->load_addr = (uint8 *)buf;
     module->load_size = size;
 #endif
