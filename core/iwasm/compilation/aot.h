@@ -214,6 +214,8 @@ typedef struct AOTFunc {
     uint32 max_stack_cell_num;
     uint32 code_size;
     uint8 *code;
+    uint32 code_offset;
+    uint32 local_start_offset;
     /* offset of each local, including function parameters
        and local variables */
     uint16 *local_offsets;

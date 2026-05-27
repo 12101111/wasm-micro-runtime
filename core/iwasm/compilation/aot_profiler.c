@@ -24,7 +24,7 @@ wamr_profile_set_debug_location(AOTCompContext *comp_ctx, uint32_t line,
 
 void
 wamr_profile_append_func(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
-                         const char *func_name, uint32_t entry_op)
+                         const char *func_name, uint32_t entry_op, uint32_t offset)
 {
     LLVMMetadataRef func_type_meta;
     LLVMMetadataRef debug_func;
@@ -52,21 +52,21 @@ wamr_profile_append_func(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     func_ctx->debug_func = debug_func;
     comp_ctx->current_debug_func = debug_func;
 
-    line_no = profile_info_append_op(comp_ctx->profiler, entry_op);
+    line_no = profile_info_append_op(comp_ctx->profiler, entry_op, offset);
     comp_ctx->profiler_line_no = line_no;
 
     wamr_profile_set_debug_location(comp_ctx, line_no, 0);
 }
 
 void
-wamr_profile_append_op(AOTCompContext *comp_ctx, uint32_t opcode)
+wamr_profile_append_op(AOTCompContext *comp_ctx, uint32_t opcode, uint32_t offset)
 {
     uint32_t line_no;
 
     if (!comp_ctx->profiler)
         return;
 
-    line_no = profile_info_append_op(comp_ctx->profiler, opcode);
+    line_no = profile_info_append_op(comp_ctx->profiler, opcode, offset);
     comp_ctx->profiler_line_no = line_no;
 
     wamr_profile_set_debug_location(comp_ctx, line_no, 0);

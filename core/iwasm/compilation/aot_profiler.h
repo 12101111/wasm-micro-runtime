@@ -103,10 +103,10 @@ wamr_profile_build_ret_void(AOTCompContext *comp_ctx, LLVMBuilderRef builder,
 
 void
 wamr_profile_append_func(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
-                         const char *func_name, uint32_t entry_op);
+                         const char *func_name, uint32_t entry_op, uint32_t offset);
 
 void
-wamr_profile_append_op(AOTCompContext *comp_ctx, uint32_t opcode);
+wamr_profile_append_op(AOTCompContext *comp_ctx, uint32_t opcode, uint32_t offset);
 
 void
 wamr_profile_append_default_inst(AOTCompContext *comp_ctx);
@@ -117,9 +117,9 @@ wamr_profile_append_default_inst(AOTCompContext *comp_ctx);
 
 #else /* WASM_ENABLE_PROFILER == 0 */
 
-#define wamr_profile_append_func(comp_ctx, func_ctx, func_name, entry_op) \
+#define wamr_profile_append_func(comp_ctx, func_ctx, func_name, entry_op, offset) \
     (void)0
-#define wamr_profile_append_op(comp_ctx, opcode) (void)0
+#define wamr_profile_append_op(comp_ctx, opcode, offset) (void)0
 #define wamr_profile_append_default_inst(comp_ctx) (void)0
 
 #endif /* WASM_ENABLE_PROFILER != 0 */

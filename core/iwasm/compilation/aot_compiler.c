@@ -1057,7 +1057,10 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
         }
 
         if (opcode < WASM_OP_GC_PREFIX) {
-            wamr_profile_append_op(comp_ctx, opcode);
+            wamr_profile_append_op(
+                comp_ctx, opcode,
+                func_ctx->aot_func->code_offset
+                    + (frame_ip - 1 - func_ctx->aot_func->code));
         }
 
 #if WASM_ENABLE_DEBUG_AOT != 0
@@ -2468,6 +2471,7 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
             case WASM_OP_MISC_PREFIX:
             {
                 uint32 opcode1;
+                uint8 *prefix_ip = frame_ip - 1;
                 read_leb_uint32(frame_ip, frame_ip_end, opcode1);
                 /* opcode1 was checked in loader and is no larger than
                    UINT8_MAX */
@@ -2488,7 +2492,10 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                 }
 #endif
 
-                wamr_profile_append_op(comp_ctx, WASM_OP_MISC_PREFIX << 16 | opcode);
+                wamr_profile_append_op(
+                    comp_ctx, WASM_OP_MISC_PREFIX << 16 | opcode,
+                    func_ctx->aot_func->code_offset
+                        + (prefix_ip - func_ctx->aot_func->code));
 
                 switch (opcode) {
                     case WASM_OP_I32_TRUNC_SAT_S_F32:
