@@ -162,6 +162,11 @@ typedef struct WASMExecEnv {
     uint32 max_wasm_stack_used;
 #endif
 
+#if WASM_ENABLE_PROFILER != 0
+    void *profiler_logs;
+    char *profiler_log_path;
+#endif
+
     /* The WASM stack size */
     uint32 wasm_stack_size;
 
@@ -319,6 +324,11 @@ wasm_exec_env_push_jmpbuf(WASMExecEnv *exec_env, WASMJmpBuf *jmpbuf);
 
 WASMJmpBuf *
 wasm_exec_env_pop_jmpbuf(WASMExecEnv *exec_env);
+#endif
+
+#if WASM_ENABLE_PROFILER != 0
+void
+wasm_runtime_set_profiler_log_path(WASMExecEnv *exec_env, const char *path);
 #endif
 
 #ifdef __cplusplus
