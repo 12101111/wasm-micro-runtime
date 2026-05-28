@@ -112,6 +112,9 @@ print_help(void)
 #if WASM_ENABLE_STATIC_PGO != 0
     printf("  --gen-prof-file=<path>   Generate LLVM PGO (Profile-Guided Optimization) profile file\n");
 #endif
+#if WASM_ENABLE_PROFILER != 0
+    printf("  --profiler-log-path=<path>  Set profiler log output path for fast interpreter\n");
+#endif
     printf("  --version                Show version information\n");
     return 1;
 }
@@ -622,6 +625,9 @@ main(int argc, char *argv[])
 #if WASM_ENABLE_STATIC_PGO != 0
     const char *gen_prof_file = NULL;
 #endif
+#if WASM_ENABLE_PROFILER != 0
+    const char *profiler_log_path = NULL;
+#endif
 #if WASM_ENABLE_THREAD_MGR != 0
     int timeout_ms = -1;
 #endif
@@ -800,6 +806,13 @@ main(int argc, char *argv[])
             gen_prof_file = argv[0] + 16;
         }
 #endif
+#if WASM_ENABLE_PROFILER != 0
+        else if (!strncmp(argv[0], "--profiler-log-path=", 20)) {
+            if (argv[0][20] == '\0')
+                return print_help();
+            profiler_log_path = argv[0] + 20;
+        }
+#endif
         else if (!strcmp(argv[0], "--version")) {
             uint32 major, minor, patch;
             wasm_runtime_get_version(&major, &minor, &patch);
@@ -971,6 +984,15 @@ main(int argc, char *argv[])
 #if WASM_CONFIGURABLE_BOUNDS_CHECKS != 0
     if (disable_bounds_checks) {
         wasm_runtime_set_bounds_checks(wasm_module_inst, false);
+    }
+#endif
+
+#if WASM_ENABLE_PROFILER != 0
+    if (profiler_log_path) {
+        wasm_exec_env_t exec_env =
+            wasm_runtime_get_exec_env_singleton(wasm_module_inst);
+        if (exec_env)
+            wasm_runtime_set_profiler_log_path(exec_env, profiler_log_path);
     }
 #endif
 

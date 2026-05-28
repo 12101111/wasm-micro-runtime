@@ -966,6 +966,18 @@ wasm_copy_callstack(const wasm_exec_env_t exec_env, WASMCApiFrame *buffer,
 WASM_RUNTIME_API_EXTERN wasm_exec_env_t
 wasm_runtime_get_exec_env_singleton(wasm_module_inst_t module_inst);
 
+#if WASM_ENABLE_PROFILER != 0
+/**
+ * Set the profiler log output path for the execution environment.
+ * The log will be written when the exec env is destroyed.
+ *
+ * @param exec_env the execution environment
+ * @param path the output file path, or NULL to disable logging
+ */
+WASM_RUNTIME_API_EXTERN void
+wasm_runtime_set_profiler_log_path(wasm_exec_env_t exec_env, const char *path);
+#endif
+
 /**
  * Start debug instance based on given execution environment.
  * Note:

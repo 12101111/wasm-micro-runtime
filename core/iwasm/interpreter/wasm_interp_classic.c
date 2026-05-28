@@ -10,6 +10,9 @@
 #include "wasm_loader.h"
 #include "wasm_memory.h"
 #include "../common/wasm_exec_env.h"
+#if WASM_ENABLE_PROFILER != 0
+#include "wa2x_profiler.h"
+#endif
 #if WASM_ENABLE_GC != 0
 #include "../common/gc/gc_object.h"
 #include "mem_alloc.h"
@@ -34,6 +37,40 @@ typedef float32 CellType_F32;
 typedef float64 CellType_F64;
 
 #define BR_TABLE_TMP_BUF_LEN 32
+
+#if WASM_ENABLE_PROFILER != 0
+#define PROFILE_OP(exec_env, op)                                               \
+    do {                                                                       \
+        if ((exec_env)->profiler_logs) {                                       \
+            wasm_log_append_op((exec_env)->profiler_logs, op,                  \
+                               cur_func->u.func->code_offset                   \
+                                   + (uint32)((frame_ip - 1)                   \
+                                              - cur_func->u.func->code));      \
+        }                                                                      \
+    } while (0)
+
+#define PROFILE_OP_ADDR(exec_env, op, addr)                                    \
+    do {                                                                       \
+        if ((exec_env)->profiler_logs) {                                       \
+            wasm_log_append_op_addr(                                           \
+                (exec_env)->profiler_logs, op,                                 \
+                cur_func->u.func->code_offset                                  \
+                    + (uint32)((frame_ip - 1) - cur_func->u.func->code),       \
+                (uint32)(addr));                                               \
+        }                                                                      \
+    } while (0)
+
+#define PROFILE_OP_ADDR_AT(exec_env, op, addr, op_ptr)                         \
+    do {                                                                       \
+        if ((exec_env)->profiler_logs) {                                       \
+            wasm_log_append_op_addr(                                           \
+                (exec_env)->profiler_logs, op,                                 \
+                cur_func->u.func->code_offset                                  \
+                    + (uint32)((op_ptr)-cur_func->u.func->code),               \
+                (uint32)(addr));                                               \
+        }                                                                      \
+    } while (0)
+#endif
 
 #if WASM_ENABLE_THREAD_MGR == 0
 #define get_linear_mem_size() linear_mem_size
@@ -1681,6 +1718,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             /* control instructions */
             HANDLE_OP(WASM_OP_UNREACHABLE)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_UNREACHABLE);
+#endif
                 wasm_set_exception(module, "unreachable");
                 goto got_exception;
             }
@@ -2082,6 +2122,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_BLOCK)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_BLOCK);
+#endif
                 value_type = *frame_ip++;
                 param_cell_num = 0;
                 cell_num = wasm_value_type_cell_num(value_type);
@@ -2123,6 +2166,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_LOOP)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_LOOP);
+#endif
                 value_type = *frame_ip++;
                 param_cell_num = 0;
                 cell_num = 0;
@@ -2143,6 +2189,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_IF)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_IF);
+#endif
                 value_type = *frame_ip++;
                 param_cell_num = 0;
                 cell_num = wasm_value_type_cell_num(value_type);
@@ -2188,6 +2237,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_ELSE)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_ELSE);
+#endif
                 /* comes from the if branch in WASM_OP_IF */
                 frame_ip = (frame_csp - 1)->target_addr;
                 HANDLE_OP_END();
@@ -2195,6 +2247,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_END)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_END);
+#endif
                 if (frame_csp > frame->csp_bottom + 1) {
                     POP_CSP();
                 }
@@ -2218,6 +2273,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_BR)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_BR);
+#endif
 #if WASM_ENABLE_THREAD_MGR != 0
                 CHECK_SUSPEND_FLAGS();
 #endif
@@ -2239,6 +2297,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_BR_IF)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_BR_IF);
+#endif
 #if WASM_ENABLE_THREAD_MGR != 0
                 CHECK_SUSPEND_FLAGS();
 #endif
@@ -2251,6 +2312,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_BR_TABLE)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_BR_TABLE);
+#endif
 #if WASM_ENABLE_THREAD_MGR != 0
                 CHECK_SUSPEND_FLAGS();
 #endif
@@ -2289,6 +2353,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_RETURN)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_RETURN);
+#endif
                 frame_sp -= cur_func->ret_cell_num;
                 for (i = 0; i < cur_func->ret_cell_num; i++) {
 #if WASM_ENABLE_GC != 0
@@ -2306,6 +2373,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_CALL)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_CALL);
+#endif
 #if WASM_ENABLE_THREAD_MGR != 0
                 CHECK_SUSPEND_FLAGS();
 #endif
@@ -2345,6 +2415,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             HANDLE_OP(WASM_OP_RETURN_CALL_INDIRECT)
 #endif
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, *(frame_ip - 1));
+#endif
                 WASMFuncType *cur_type, *cur_func_type;
                 WASMTableInstance *tbl_inst;
                 uint32 tbl_idx;
@@ -2470,6 +2543,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_SELECT)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_SELECT);
+#endif
                 cond = (uint32)POP_I32();
                 frame_sp--;
                 if (!cond)
@@ -2491,6 +2567,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 #if WASM_ENABLE_REF_TYPES != 0 || WASM_ENABLE_GC != 0
             HANDLE_OP(WASM_OP_SELECT_T)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_SELECT_T);
+#endif
                 uint32 vec_len;
                 uint8 type;
 
@@ -4287,6 +4366,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_GET_GLOBAL)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_GET_GLOBAL);
+#endif
                 read_leb_uint32(frame_ip, frame_ip_end, global_idx);
                 bh_assert(global_idx < module->e->global_count);
                 global = globals + global_idx;
@@ -4311,6 +4393,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_GET_GLOBAL_64)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_GET_GLOBAL_64);
+#endif
                 read_leb_uint32(frame_ip, frame_ip_end, global_idx);
                 bh_assert(global_idx < module->e->global_count);
                 global = globals + global_idx;
@@ -4321,6 +4406,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_SET_GLOBAL)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_SET_GLOBAL);
+#endif
                 read_leb_uint32(frame_ip, frame_ip_end, global_idx);
                 bh_assert(global_idx < module->e->global_count);
                 global = globals + global_idx;
@@ -4389,6 +4477,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_SET_GLOBAL_64)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_SET_GLOBAL_64);
+#endif
                 read_leb_uint32(frame_ip, frame_ip_end, global_idx);
                 bh_assert(global_idx < module->e->global_count);
                 global = globals + global_idx;
@@ -4403,11 +4494,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             {
                 uint32 flags;
                 mem_offset_t offset, addr;
+                uint8 *op_ptr = frame_ip - 1;
 
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 addr = POP_MEM_OFFSET();
                 CHECK_MEMORY_OVERFLOW(4);
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, *op_ptr,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
                 PUSH_I32(LOAD_I32(maddr));
                 CHECK_READ_WATCHPOINT(addr, offset);
                 HANDLE_OP_END();
@@ -4418,11 +4514,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             {
                 uint32 flags;
                 mem_offset_t offset, addr;
+                uint8 *op_ptr = frame_ip - 1;
 
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 addr = POP_MEM_OFFSET();
                 CHECK_MEMORY_OVERFLOW(8);
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, *op_ptr,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
                 PUSH_I64(LOAD_I64(maddr));
                 CHECK_READ_WATCHPOINT(addr, offset);
                 HANDLE_OP_END();
@@ -4432,11 +4533,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             {
                 uint32 flags;
                 mem_offset_t offset, addr;
+                uint8 *op_ptr = frame_ip - 1;
 
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 addr = POP_MEM_OFFSET();
                 CHECK_MEMORY_OVERFLOW(1);
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, *op_ptr,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
                 PUSH_I32(sign_ext_8_32(*(int8 *)maddr));
                 CHECK_READ_WATCHPOINT(addr, offset);
                 HANDLE_OP_END();
@@ -4446,11 +4552,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             {
                 uint32 flags;
                 mem_offset_t offset, addr;
+                uint8 *op_ptr = frame_ip - 1;
 
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 addr = POP_MEM_OFFSET();
                 CHECK_MEMORY_OVERFLOW(1);
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, *op_ptr,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
                 PUSH_I32((uint32)(*(uint8 *)maddr));
                 CHECK_READ_WATCHPOINT(addr, offset);
                 HANDLE_OP_END();
@@ -4460,11 +4571,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             {
                 uint32 flags;
                 mem_offset_t offset, addr;
+                uint8 *op_ptr = frame_ip - 1;
 
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 addr = POP_MEM_OFFSET();
                 CHECK_MEMORY_OVERFLOW(2);
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, *op_ptr,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
                 PUSH_I32(sign_ext_16_32(LOAD_I16(maddr)));
                 CHECK_READ_WATCHPOINT(addr, offset);
                 HANDLE_OP_END();
@@ -4474,11 +4590,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             {
                 uint32 flags;
                 mem_offset_t offset, addr;
+                uint8 *op_ptr = frame_ip - 1;
 
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 addr = POP_MEM_OFFSET();
                 CHECK_MEMORY_OVERFLOW(2);
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, *op_ptr,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
                 PUSH_I32((uint32)(LOAD_U16(maddr)));
                 CHECK_READ_WATCHPOINT(addr, offset);
                 HANDLE_OP_END();
@@ -4488,11 +4609,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             {
                 uint32 flags;
                 mem_offset_t offset, addr;
+                uint8 *op_ptr = frame_ip - 1;
 
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 addr = POP_MEM_OFFSET();
                 CHECK_MEMORY_OVERFLOW(1);
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, *op_ptr,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
                 PUSH_I64(sign_ext_8_64(*(int8 *)maddr));
                 CHECK_READ_WATCHPOINT(addr, offset);
                 HANDLE_OP_END();
@@ -4502,11 +4628,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             {
                 uint32 flags;
                 mem_offset_t offset, addr;
+                uint8 *op_ptr = frame_ip - 1;
 
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 addr = POP_MEM_OFFSET();
                 CHECK_MEMORY_OVERFLOW(1);
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, *op_ptr,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
                 PUSH_I64((uint64)(*(uint8 *)maddr));
                 CHECK_READ_WATCHPOINT(addr, offset);
                 HANDLE_OP_END();
@@ -4516,11 +4647,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             {
                 uint32 flags;
                 mem_offset_t offset, addr;
+                uint8 *op_ptr = frame_ip - 1;
 
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 addr = POP_MEM_OFFSET();
                 CHECK_MEMORY_OVERFLOW(2);
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, *op_ptr,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
                 PUSH_I64(sign_ext_16_64(LOAD_I16(maddr)));
                 CHECK_READ_WATCHPOINT(addr, offset);
                 HANDLE_OP_END();
@@ -4530,11 +4666,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             {
                 uint32 flags;
                 mem_offset_t offset, addr;
+                uint8 *op_ptr = frame_ip - 1;
 
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 addr = POP_MEM_OFFSET();
                 CHECK_MEMORY_OVERFLOW(2);
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, *op_ptr,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
                 PUSH_I64((uint64)(LOAD_U16(maddr)));
                 CHECK_READ_WATCHPOINT(addr, offset);
                 HANDLE_OP_END();
@@ -4544,11 +4685,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             {
                 uint32 flags;
                 mem_offset_t offset, addr;
+                uint8 *op_ptr = frame_ip - 1;
 
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 addr = POP_MEM_OFFSET();
                 CHECK_MEMORY_OVERFLOW(4);
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, *op_ptr,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
                 PUSH_I64(sign_ext_32_64(LOAD_I32(maddr)));
                 CHECK_READ_WATCHPOINT(addr, offset);
                 HANDLE_OP_END();
@@ -4558,11 +4704,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             {
                 uint32 flags;
                 mem_offset_t offset, addr;
+                uint8 *op_ptr = frame_ip - 1;
 
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 addr = POP_MEM_OFFSET();
                 CHECK_MEMORY_OVERFLOW(4);
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, *op_ptr,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
                 PUSH_I64((uint64)(LOAD_U32(maddr)));
                 CHECK_READ_WATCHPOINT(addr, offset);
                 HANDLE_OP_END();
@@ -4574,12 +4725,17 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             {
                 uint32 flags;
                 mem_offset_t offset, addr;
+                uint8 *op_ptr = frame_ip - 1;
 
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 frame_sp--;
                 addr = POP_MEM_OFFSET();
                 CHECK_MEMORY_OVERFLOW(4);
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, *op_ptr,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
 #if WASM_ENABLE_MEMORY64 != 0
                 if (is_memory64) {
                     STORE_U32(maddr, frame_sp[2]);
@@ -4598,12 +4754,17 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             {
                 uint32 flags;
                 mem_offset_t offset, addr;
+                uint8 *op_ptr = frame_ip - 1;
 
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 frame_sp -= 2;
                 addr = POP_MEM_OFFSET();
                 CHECK_MEMORY_OVERFLOW(8);
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, *op_ptr,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
 
 #if WASM_ENABLE_MEMORY64 != 0
                 if (is_memory64) {
@@ -4626,12 +4787,17 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                 uint32 flags;
                 mem_offset_t offset, addr;
                 uint32 sval;
+                uint8 *op_ptr = frame_ip - 1;
 
-                opcode = *(frame_ip - 1);
+                opcode = *op_ptr;
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 sval = (uint32)POP_I32();
                 addr = POP_MEM_OFFSET();
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, opcode,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
 
                 if (opcode == WASM_OP_I32_STORE8) {
                     CHECK_MEMORY_OVERFLOW(1);
@@ -4652,12 +4818,17 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                 uint32 flags;
                 mem_offset_t offset, addr;
                 uint64 sval;
+                uint8 *op_ptr = frame_ip - 1;
 
-                opcode = *(frame_ip - 1);
+                opcode = *op_ptr;
                 read_leb_memarg(frame_ip, frame_ip_end, flags);
                 read_leb_mem_offset(frame_ip, frame_ip_end, offset);
                 sval = (uint64)POP_I64();
                 addr = POP_MEM_OFFSET();
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_ADDR_AT(exec_env, opcode,
+                                   (uint64)offset + (uint64)addr, op_ptr);
+#endif
 
                 if (opcode == WASM_OP_I64_STORE8) {
                     CHECK_MEMORY_OVERFLOW(1);
@@ -4678,6 +4849,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             /* memory size and memory grow instructions */
             HANDLE_OP(WASM_OP_MEMORY_SIZE)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_MEMORY_SIZE);
+#endif
                 uint32 mem_idx;
                 read_leb_memidx(frame_ip, frame_ip_end, mem_idx);
                 PUSH_PAGE_COUNT(memory->cur_page_count);
@@ -4686,6 +4860,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_MEMORY_GROW)
             {
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP(exec_env, WASM_OP_MEMORY_GROW);
+#endif
                 uint32 mem_idx, prev_page_count;
                 mem_offset_t delta;
 
@@ -5657,6 +5834,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             HANDLE_OP(WASM_OP_MISC_PREFIX)
             {
                 uint32 opcode1;
+#if WASM_ENABLE_PROFILER != 0
+                uint8 *prefix_ptr = frame_ip - 1;
+#endif
 
                 read_leb_uint32(frame_ip, frame_ip_end, opcode1);
                 /* opcode1 was checked in loader and is no larger than
@@ -5720,6 +5900,12 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         offset = (uint64)(uint32)POP_I32();
                         addr = (mem_offset_t)POP_MEM_OFFSET();
 
+#if WASM_ENABLE_PROFILER != 0
+                        PROFILE_OP_ADDR_AT(
+                            exec_env, (WASM_OP_MISC_PREFIX << 8) | opcode,
+                            (uint64)addr, prefix_ptr);
+#endif
+
 #if WASM_ENABLE_THREAD_MGR != 0
                         linear_mem_size = get_linear_mem_size();
 #endif
@@ -5776,6 +5962,12 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         len = POP_MEM_OFFSET();
                         src = POP_MEM_OFFSET();
                         dst = POP_MEM_OFFSET();
+
+#if WASM_ENABLE_PROFILER != 0
+                        PROFILE_OP_ADDR_AT(
+                            exec_env, (WASM_OP_MISC_PREFIX << 8) | opcode,
+                            (uint64)dst, prefix_ptr);
+#endif
 
 #if WASM_ENABLE_MULTI_MEMORY != 0
                         /* dst memidx */
@@ -5864,6 +6056,12 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         len = POP_MEM_OFFSET();
                         fill_val = POP_I32();
                         dst = POP_MEM_OFFSET();
+
+#if WASM_ENABLE_PROFILER != 0
+                        PROFILE_OP_ADDR_AT(
+                            exec_env, (WASM_OP_MISC_PREFIX << 8) | opcode,
+                            (uint64)dst, prefix_ptr);
+#endif
 
 #if WASM_ENABLE_THREAD_MGR != 0
                         linear_mem_size = get_linear_mem_size();

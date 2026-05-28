@@ -192,7 +192,7 @@ set_target_properties (vmlib PROPERTIES
   POSITION_INDEPENDENT_CODE ON
 )
 
-target_link_libraries (vmlib ${LLVM_AVAILABLE_LIBS} ${UV_A_LIBS} -lm -ldl -lpthread)
+target_link_libraries (vmlib ${LLVM_AVAILABLE_LIBS} ${UV_A_LIBS} ${WAMR_PROFILER_LIBS} -lm -ldl -lpthread)
 
 install (TARGETS vmlib
   EXPORT iwasmTargets

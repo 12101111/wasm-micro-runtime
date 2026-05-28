@@ -7,7 +7,10 @@ add_definitions (-DWASM_ENABLE_INTERP=1)
 
 include_directories(${IWASM_INTERP_DIR})
 
-if (WAMR_BUILD_FAST_INTERP EQUAL 1)
+if (WAMR_BUILD_PROFILER EQUAL 1)
+    # Profiler is currently only supported in the classic interpreter
+    set (INTERPRETER     "wasm_interp_classic.c")
+elseif (WAMR_BUILD_FAST_INTERP EQUAL 1)
     set (INTERPRETER     "wasm_interp_fast.c")
 else ()
     set (INTERPRETER     "wasm_interp_classic.c")

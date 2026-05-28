@@ -18,6 +18,9 @@
 #if WASM_ENABLE_AOT != 0
 #include "aot_runtime.h"
 #endif
+#if WASM_ENABLE_PROFILER != 0
+#include "wa2x_profiler.h"
+#endif
 
 #if WASM_ENABLE_THREAD_MGR != 0
 #include "../libraries/thread-mgr/thread_manager.h"
@@ -68,6 +71,12 @@ wasm_exec_env_create_internal(struct WASMModuleInstanceCommon *module_inst,
 
     exec_env->module_inst = module_inst;
     exec_env->wasm_stack_size = stack_size;
+
+#if WASM_ENABLE_PROFILER != 0
+    if (exec_env->profiler_log_path) {
+        exec_env->profiler_logs = wasm_log_new();
+    }
+#endif
     exec_env->wasm_stack.bottom = exec_env->wasm_stack_u.bottom;
     exec_env->wasm_stack.top_boundary =
         exec_env->wasm_stack.bottom + stack_size;
@@ -199,6 +208,27 @@ wasm_exec_env_create(struct WASMModuleInstanceCommon *module_inst,
 void
 wasm_exec_env_destroy(WASMExecEnv *exec_env)
 {
+#if WASM_ENABLE_PROFILER != 0
+    if (exec_env->profiler_logs) {
+        if (exec_env->profiler_log_path) {
+            uintptr_t len = 0;
+            uint8_t *data = wasm_log_encode(exec_env->profiler_logs, &len);
+            if (data && len > 0) {
+                FILE *fp = fopen(exec_env->profiler_log_path, "wb");
+                if (fp) {
+                    fwrite(data, 1, len, fp);
+                    fclose(fp);
+                }
+            }
+            if (data)
+                profile_info_encoded_free(data, len);
+            wasm_runtime_free(exec_env->profiler_log_path);
+            exec_env->profiler_log_path = NULL;
+        }
+        wasm_log_free(exec_env->profiler_logs);
+        exec_env->profiler_logs = NULL;
+    }
+#endif
 #if WASM_ENABLE_THREAD_MGR != 0
     /* Wait for all sub-threads */
     WASMCluster *cluster = wasm_exec_env_get_cluster(exec_env);
@@ -332,5 +362,27 @@ wasm_exec_env_pop_jmpbuf(WASMExecEnv *exec_env)
     }
 
     return NULL;
+}
+#endif
+
+#if WASM_ENABLE_PROFILER != 0
+void
+wasm_runtime_set_profiler_log_path(WASMExecEnv *exec_env, const char *path)
+{
+    if (exec_env->profiler_log_path) {
+        wasm_runtime_free(exec_env->profiler_log_path);
+        exec_env->profiler_log_path = NULL;
+    }
+    if (path) {
+        exec_env->profiler_log_path =
+            wasm_runtime_malloc((uint32)(strlen(path) + 1));
+        if (exec_env->profiler_log_path) {
+            bh_memcpy_s(exec_env->profiler_log_path, (uint32)(strlen(path) + 1),
+                        path, (uint32)(strlen(path) + 1));
+            if (!exec_env->profiler_logs) {
+                exec_env->profiler_logs = wasm_log_new();
+            }
+        }
+    }
 }
 #endif
