@@ -211,4 +211,35 @@ wamr_profile_build_ret_void(AOTCompContext *comp_ctx, LLVMBuilderRef builder,
     return res;
 }
 
+LLVMValueRef
+wamr_profile_build_mem_move(AOTCompContext *comp_ctx, LLVMBuilderRef builder,
+                            LLVMValueRef dst, unsigned dst_align,
+                            LLVMValueRef src, unsigned src_align,
+                            LLVMValueRef size, uint8_t compiler_file,
+                            uint16_t compiler_loc)
+{
+    LLVMValueRef res;
+
+    wamr_profile_append_inst_internal(comp_ctx, MemMove, compiler_file,
+                                      compiler_loc);
+    res = LLVMBuildMemMove(builder, dst, dst_align, src, src_align, size);
+    wamr_profile_append_default_inst(comp_ctx);
+    return res;
+}
+
+LLVMValueRef
+wamr_profile_build_select(AOTCompContext *comp_ctx, LLVMBuilderRef builder,
+                          LLVMValueRef if_val, LLVMValueRef then_val,
+                          LLVMValueRef else_val, const char *name,
+                          uint8_t compiler_file, uint16_t compiler_loc)
+{
+    LLVMValueRef res;
+
+    wamr_profile_append_inst_internal(comp_ctx, Select, compiler_file,
+                                      compiler_loc);
+    res = LLVMBuildSelect(builder, if_val, then_val, else_val, name);
+    wamr_profile_append_default_inst(comp_ctx);
+    return res;
+}
+
 #endif /* WASM_ENABLE_PROFILER != 0 */
