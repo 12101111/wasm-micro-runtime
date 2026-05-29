@@ -3892,6 +3892,12 @@ load_relocation_section(const uint8 *buf, const uint8 *buf_end,
             relocation->symbol_name = symbols[symbol_index];
         }
 
+        if (!strncmp(group->section_name, ".rela.debug",
+                     strlen(".rela.debug"))
+            || !strcmp(group->section_name, ".rela.eh_frame")) {
+            continue;
+        }
+
         if (!strcmp(group->section_name, ".rel.text")
             || !strcmp(group->section_name, ".rela.text")
             || !strcmp(group->section_name, ".rel.ltext")

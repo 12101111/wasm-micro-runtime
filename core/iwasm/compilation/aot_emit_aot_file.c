@@ -4267,7 +4267,11 @@ is_relocation_section_name(AOTObjectData *obj_data, char *section_name)
                         strlen(".rela.rodata.cst"))
             /* ".rel.rodata.cst4/8/16/.." */
             || !strncmp(section_name, ".rel.rodata.cst",
-                        strlen(".rel.rodata.cst")));
+                        strlen(".rel.rodata.cst"))
+            || (obj_data->comp_ctx->profiler
+                && (!strncmp(section_name, ".rela.debug",
+                             strlen(".rela.debug"))
+                    || !strcmp(section_name, ".rela.eh_frame"))));
 }
 
 static bool
