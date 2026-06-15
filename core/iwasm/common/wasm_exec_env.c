@@ -219,13 +219,14 @@ wasm_exec_env_destroy(WASMExecEnv *exec_env)
                     fwrite(data, 1, len, fp);
                     fclose(fp);
                 }
+            } else {
+                wasm_log_free(exec_env->profiler_logs);
             }
             if (data)
                 profile_info_encoded_free(data, len);
             wasm_runtime_free(exec_env->profiler_log_path);
             exec_env->profiler_log_path = NULL;
         }
-        wasm_log_free(exec_env->profiler_logs);
         exec_env->profiler_logs = NULL;
     }
 #endif
