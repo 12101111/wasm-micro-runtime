@@ -4394,7 +4394,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             HANDLE_OP(WASM_OP_GET_GLOBAL_64)
             {
 #if WASM_ENABLE_PROFILER != 0
-                PROFILE_OP(exec_env, WASM_OP_GET_GLOBAL_64);
+                PROFILE_OP(exec_env, WASM_OP_GET_GLOBAL);
 #endif
                 read_leb_uint32(frame_ip, frame_ip_end, global_idx);
                 bh_assert(global_idx < module->e->global_count);
@@ -4478,7 +4478,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             HANDLE_OP(WASM_OP_SET_GLOBAL_64)
             {
 #if WASM_ENABLE_PROFILER != 0
-                PROFILE_OP(exec_env, WASM_OP_SET_GLOBAL_64);
+                PROFILE_OP(exec_env, WASM_OP_SET_GLOBAL);
 #endif
                 read_leb_uint32(frame_ip, frame_ip_end, global_idx);
                 bh_assert(global_idx < module->e->global_count);
