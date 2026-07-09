@@ -113,7 +113,7 @@ print_help(void)
     printf("  --gen-prof-file=<path>   Generate LLVM PGO (Profile-Guided Optimization) profile file\n");
 #endif
 #if WASM_ENABLE_PROFILER != 0
-    printf("  --profiler-log-path=<path>  Set profiler log output path for fast interpreter\n");
+    printf("  --profiler-log-path=<path>  Set profiler log output path for classic interpreter\n");
 #endif
     printf("  --version                Show version information\n");
     return 1;
