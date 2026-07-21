@@ -132,7 +132,8 @@ static SymbolMap target_sym_map[] = {
     REG_SYM(__subsf3),
     REG_SYM(__unordsf2),
     REG_SYM(__floatunsisf),
-#elif __riscv_xlen == 32
+#endif
+#if __riscv_xlen == 32
     /* rv32f, support FP instruction but need soft routines
      * to convert float and long long
      */
@@ -156,6 +157,7 @@ static SymbolMap target_sym_map[] = {
     REG_SYM(__gtdf2),
     REG_SYM(__ledf2),
     REG_SYM(__ltdf2),
+    REG_SYM(__ltsf2),
     REG_SYM(__muldf3),
     REG_SYM(__nedf2),
     REG_SYM(__negdf2),

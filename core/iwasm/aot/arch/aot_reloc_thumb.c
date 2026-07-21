@@ -35,6 +35,7 @@ void __aeabi_f2d(void);
 void __aeabi_f2iz(void);
 void __aeabi_f2lz(void);
 void __aeabi_f2ulz(void);
+void __aeabi_f2uiz(void);
 void __aeabi_fadd(void);
 void __aeabi_fcmpeq(void);
 void __aeabi_fcmpge(void);
@@ -158,6 +159,7 @@ static SymbolMap target_sym_map[] = {
     REG_SYM(__aeabi_f2iz),
     REG_SYM(__aeabi_f2lz),
     REG_SYM(__aeabi_f2ulz),
+    REG_SYM(__aeabi_f2uiz),
     REG_SYM(__aeabi_fadd),
     REG_SYM(__aeabi_fcmpeq),
     REG_SYM(__aeabi_fcmpge),
