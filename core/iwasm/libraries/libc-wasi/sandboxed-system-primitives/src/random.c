@@ -15,8 +15,17 @@
 #include "bh_platform.h"
 #include "libc_errno.h"
 #include "random.h"
+#if WASM_ENABLE_PROFILER != 0
+#include "wa2x_profiler.h"
 
-#if CONFIG_HAS_ARC4RANDOM_BUF
+__wasi_errno_t
+random_buf(void *buf, size_t len)
+{
+    wa2x_random_fill(buf, len);
+    return __WASI_ESUCCESS;
+}
+
+#elif CONFIG_HAS_ARC4RANDOM_BUF
 
 __wasi_errno_t
 random_buf(void *buf, size_t len)
