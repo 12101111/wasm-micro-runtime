@@ -70,6 +70,37 @@ typedef float64 CellType_F64;
                 (uint32)(addr));                                               \
         }                                                                      \
     } while (0)
+
+/* Record a control-flow instruction with its resolved target: op_ptr and
+   target_ip are pointers into cur_func's bytecode, cur_func must still be
+   the function being executed */
+#define PROFILE_OP_TARGET_AT(exec_env, op, target_ip, op_ptr)                  \
+    do {                                                                       \
+        if ((exec_env)->profiler_logs) {                                       \
+            wasm_log_append_op_addr(                                           \
+                (exec_env)->profiler_logs, op,                                 \
+                cur_func->u.func->code_offset                                  \
+                    + (uint32)((op_ptr)-cur_func->u.func->code),               \
+                cur_func->u.func->code_offset                                  \
+                    + (uint32)((target_ip)-cur_func->u.func->code));           \
+        }                                                                      \
+    } while (0)
+
+/* Record a call instruction with its resolved callee: cur_func has been
+   switched to the callee, op_offset is the wasm file offset of the call
+   instruction saved before the switch. The target is the wasm file offset
+   of the callee entry, or (uint32)-1 for an imported function which has
+   no wasm bytecode */
+#define PROFILE_OP_CALL_TARGET(exec_env, op, op_offset)                        \
+    do {                                                                       \
+        if ((exec_env)->profiler_logs) {                                       \
+            wasm_log_append_op_addr(                                           \
+                (exec_env)->profiler_logs, op, op_offset,                      \
+                cur_func->is_import_func                                       \
+                    ? (uint32)-1                                               \
+                    : cur_func->u.func->code_offset);                          \
+        }                                                                      \
+    } while (0)
 #endif
 
 #if WASM_ENABLE_THREAD_MGR == 0
@@ -1638,6 +1669,15 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
     uint32 local_idx, local_offset, global_idx;
     uint8 local_type, *global_addr;
     uint32 cache_index, type_index, param_cell_num, cell_num;
+#if WASM_ENABLE_PROFILER != 0
+    /* opcode location of the branch being profiled, consumed and reset
+       at label_pop_csp_n / the end of the if handler */
+    uint8 *prof_op_ptr = NULL;
+    uint8 prof_opcode = 0;
+    /* wasm file offset of the call instruction being profiled, saved at
+       the handler entry before cur_func is switched to the callee */
+    uint32 prof_op_offset = 0;
+#endif
 
 #if WASM_ENABLE_INSTRUCTION_METERING != 0
     int instructions_left = -1;
@@ -2179,6 +2219,11 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(EXT_OP_IF)
             {
+#if WASM_ENABLE_PROFILER != 0
+                /* multi-value if, recorded as WASM_OP_IF to match
+                   the opcode byte in the wasm file */
+                prof_op_ptr = frame_ip - 1;
+#endif
                 read_leb_uint32(frame_ip, frame_ip_end, type_index);
                 param_cell_num =
                     ((WASMFuncType *)wasm_types[type_index])->param_cell_num;
@@ -2190,7 +2235,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             HANDLE_OP(WASM_OP_IF)
             {
 #if WASM_ENABLE_PROFILER != 0
-                PROFILE_OP(exec_env, WASM_OP_IF);
+                prof_op_ptr = frame_ip - 1;
 #endif
                 value_type = *frame_ip++;
                 param_cell_num = 0;
@@ -2232,6 +2277,15 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         frame_ip = else_addr + 1;
                     }
                 }
+#if WASM_ENABLE_PROFILER != 0
+                if (prof_op_ptr) {
+                    /* frame_ip points to the next instruction to execute:
+                       the then body, the else body, or after the end */
+                    PROFILE_OP_TARGET_AT(exec_env, WASM_OP_IF, frame_ip,
+                                         prof_op_ptr);
+                    prof_op_ptr = NULL;
+                }
+#endif
                 HANDLE_OP_END();
             }
 
@@ -2292,13 +2346,22 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                     }
                     frame_ip = end_addr;
                 }
+#if WASM_ENABLE_PROFILER != 0
+                if (prof_op_ptr) {
+                    /* frame_ip has been resolved to the branch target */
+                    PROFILE_OP_TARGET_AT(exec_env, prof_opcode, frame_ip,
+                                         prof_op_ptr);
+                    prof_op_ptr = NULL;
+                }
+#endif
                 HANDLE_OP_END();
             }
 
             HANDLE_OP(WASM_OP_BR_IF)
             {
 #if WASM_ENABLE_PROFILER != 0
-                PROFILE_OP(exec_env, WASM_OP_BR_IF);
+                prof_op_ptr = frame_ip - 1;
+                prof_opcode = WASM_OP_BR_IF;
 #endif
 #if WASM_ENABLE_THREAD_MGR != 0
                 CHECK_SUSPEND_FLAGS();
@@ -2307,13 +2370,20 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                 cond = (uint32)POP_I32();
                 if (cond)
                     goto label_pop_csp_n;
+#if WASM_ENABLE_PROFILER != 0
+                /* branch not taken, the target is the next instruction */
+                PROFILE_OP_TARGET_AT(exec_env, prof_opcode, frame_ip,
+                                     prof_op_ptr);
+                prof_op_ptr = NULL;
+#endif
                 HANDLE_OP_END();
             }
 
             HANDLE_OP(WASM_OP_BR_TABLE)
             {
 #if WASM_ENABLE_PROFILER != 0
-                PROFILE_OP(exec_env, WASM_OP_BR_TABLE);
+                prof_op_ptr = frame_ip - 1;
+                prof_opcode = WASM_OP_BR_TABLE;
 #endif
 #if WASM_ENABLE_THREAD_MGR != 0
                 CHECK_SUSPEND_FLAGS();
@@ -2332,6 +2402,10 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                     bh_list_first_elem(module->module->br_table_cache_list);
                 BrTableCache *node_next;
 
+#if WASM_ENABLE_PROFILER != 0
+                prof_op_ptr = frame_ip - 1;
+                prof_opcode = WASM_OP_BR_TABLE;
+#endif
 #if WASM_ENABLE_THREAD_MGR != 0
                 CHECK_SUSPEND_FLAGS();
 #endif
@@ -2374,7 +2448,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             HANDLE_OP(WASM_OP_CALL)
             {
 #if WASM_ENABLE_PROFILER != 0
-                PROFILE_OP(exec_env, WASM_OP_CALL);
+                prof_op_offset =
+                    cur_func->u.func->code_offset
+                    + (uint32)((frame_ip - 1) - cur_func->u.func->code);
 #endif
 #if WASM_ENABLE_THREAD_MGR != 0
                 CHECK_SUSPEND_FLAGS();
@@ -2388,12 +2464,21 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 #endif
 
                 cur_func = module->e->functions + fidx;
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_CALL_TARGET(exec_env, WASM_OP_CALL,
+                                       prof_op_offset);
+#endif
                 goto call_func_from_interp;
             }
 
 #if WASM_ENABLE_TAIL_CALL != 0
             HANDLE_OP(WASM_OP_RETURN_CALL)
             {
+#if WASM_ENABLE_PROFILER != 0
+                prof_op_offset =
+                    cur_func->u.func->code_offset
+                    + (uint32)((frame_ip - 1) - cur_func->u.func->code);
+#endif
 #if WASM_ENABLE_THREAD_MGR != 0
                 CHECK_SUSPEND_FLAGS();
 #endif
@@ -2405,7 +2490,10 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                 }
 #endif
                 cur_func = module->e->functions + fidx;
-
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_CALL_TARGET(exec_env, WASM_OP_RETURN_CALL,
+                                       prof_op_offset);
+#endif
                 goto call_func_from_return_call;
             }
 #endif /* WASM_ENABLE_TAIL_CALL */
@@ -2415,16 +2503,19 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             HANDLE_OP(WASM_OP_RETURN_CALL_INDIRECT)
 #endif
             {
+#if WASM_ENABLE_PROFILER != 0 || WASM_ENABLE_TAIL_CALL != 0
+                opcode = *(frame_ip - 1);
+#endif
 #if WASM_ENABLE_PROFILER != 0
-                PROFILE_OP(exec_env, *(frame_ip - 1));
+                prof_op_offset =
+                    cur_func->u.func->code_offset
+                    + (uint32)((frame_ip - 1) - cur_func->u.func->code);
+                prof_opcode = opcode;
 #endif
                 WASMFuncType *cur_type, *cur_func_type;
                 WASMTableInstance *tbl_inst;
                 uint32 tbl_idx;
 
-#if WASM_ENABLE_TAIL_CALL != 0
-                opcode = *(frame_ip - 1);
-#endif
 #if WASM_ENABLE_THREAD_MGR != 0
                 CHECK_SUSPEND_FLAGS();
 #endif
@@ -2509,6 +2600,10 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 #endif
                 /* clang-format on */
 
+#if WASM_ENABLE_PROFILER != 0
+                /* cur_func has been switched to the resolved callee */
+                PROFILE_OP_CALL_TARGET(exec_env, prof_opcode, prof_op_offset);
+#endif
 #if WASM_ENABLE_TAIL_CALL != 0
                 if (opcode == WASM_OP_RETURN_CALL_INDIRECT)
                     goto call_func_from_return_call;
@@ -2710,6 +2805,11 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 #if WASM_ENABLE_GC != 0
             HANDLE_OP(WASM_OP_CALL_REF)
             {
+#if WASM_ENABLE_PROFILER != 0
+                prof_op_offset =
+                    cur_func->u.func->code_offset
+                    + (uint32)((frame_ip - 1) - cur_func->u.func->code);
+#endif
 #if WASM_ENABLE_THREAD_MGR != 0
                 CHECK_SUSPEND_FLAGS();
 #endif
@@ -2722,11 +2822,20 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
                 fidx = wasm_func_obj_get_func_idx_bound(func_obj);
                 cur_func = module->e->functions + fidx;
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_CALL_TARGET(exec_env, WASM_OP_CALL_REF,
+                                       prof_op_offset);
+#endif
                 goto call_func_from_interp;
             }
 
             HANDLE_OP(WASM_OP_RETURN_CALL_REF)
             {
+#if WASM_ENABLE_PROFILER != 0
+                prof_op_offset =
+                    cur_func->u.func->code_offset
+                    + (uint32)((frame_ip - 1) - cur_func->u.func->code);
+#endif
 #if WASM_ENABLE_THREAD_MGR != 0
                 CHECK_SUSPEND_FLAGS();
 #endif
@@ -2739,6 +2848,10 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
                 fidx = wasm_func_obj_get_func_idx_bound(func_obj);
                 cur_func = module->e->functions + fidx;
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_CALL_TARGET(exec_env, WASM_OP_RETURN_CALL_REF,
+                                       prof_op_offset);
+#endif
                 goto call_func_from_return_call;
             }
 
