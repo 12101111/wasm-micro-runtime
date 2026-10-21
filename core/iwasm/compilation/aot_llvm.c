@@ -115,6 +115,92 @@ aot_add_llvm_func1(const AOTCompContext *comp_ctx, LLVMModuleRef module,
 }
 
 /*
+ * Create the metadata node list of the alias scope which all accesses to the
+ * module instance and to the exec env belong to. All linear memory accesses
+ * are tagged as noalias on this scope, so that the optimizer knows that the
+ * two memory regions never alias and can move loads from the module instance
+ * (e.g. the linear memory base address, the memory size or a global) across
+ * stores to the linear memory.
+ *
+ * Note: this relies on the runtime invariant that the linear memory buffer is
+ * always allocated separately from the module instance (which contains the
+ * memories, the global data, the tables and the extra info) and the exec env
+ * (which contains the wasm operand stack), see aot_instantiate,
+ * wasm_exec_env_create_internal and wasm_allocate_linear_memory.
+ */
+static LLVMMetadataRef
+create_meta_scope_metadata(AOTCompContext *comp_ctx)
+{
+    LLVMMetadataRef domain_name, domain, scope_name, scope;
+    LLVMMetadataRef scope_ops[2];
+    static const char domain_name_str[] = "wamr_meta_domain";
+    static const char scope_name_str[] = "wamr_meta_scope";
+
+    domain_name = LLVMMDStringInContext2(comp_ctx->context, domain_name_str,
+                                         sizeof(domain_name_str) - 1);
+    if (!domain_name)
+        return NULL;
+    if (!(domain = LLVMMDNodeInContext2(comp_ctx->context, &domain_name, 1)))
+        return NULL;
+
+    scope_name = LLVMMDStringInContext2(comp_ctx->context, scope_name_str,
+                                        sizeof(scope_name_str) - 1);
+    if (!scope_name)
+        return NULL;
+    scope_ops[0] = scope_name;
+    scope_ops[1] = domain;
+    if (!(scope = LLVMMDNodeInContext2(comp_ctx->context, scope_ops, 2)))
+        return NULL;
+
+    /* A scope list, i.e. a list containing one single scope */
+    return LLVMMDNodeInContext2(comp_ctx->context, &scope, 1);
+}
+
+void
+aot_tag_meta_access(const AOTCompContext *comp_ctx, LLVMValueRef inst)
+{
+    if (!inst || comp_ctx->disable_alias_analysis || !comp_ctx->meta_scope_list)
+        return;
+
+    LLVMSetMetadata(
+        inst, comp_ctx->alias_scope_md_kind,
+        LLVMMetadataAsValue(comp_ctx->context, comp_ctx->meta_scope_list));
+}
+
+void
+aot_tag_linear_mem_access(const AOTCompContext *comp_ctx, LLVMValueRef inst)
+{
+    if (!inst || comp_ctx->disable_alias_analysis || !comp_ctx->meta_scope_list)
+        return;
+
+    LLVMSetMetadata(
+        inst, comp_ctx->noalias_md_kind,
+        LLVMMetadataAsValue(comp_ctx->context, comp_ctx->meta_scope_list));
+}
+
+bool
+aot_memory_size_is_stable(const AOTCompContext *comp_ctx)
+{
+#if WASM_ENABLE_SHARED_MEMORY != 0
+    /* For a shared memory, another thread may grow the memory at any time,
+       then the page count, data size and bound check values change as well */
+    if (comp_ctx->comp_data->memory_count > 0
+        && (comp_ctx->comp_data->memories[0].flags & 0x02))
+        return false;
+#else
+    (void)comp_ctx;
+#endif
+    return true;
+}
+
+void
+aot_tag_mem_size_access(const AOTCompContext *comp_ctx, LLVMValueRef inst)
+{
+    if (aot_memory_size_is_stable(comp_ctx))
+        aot_tag_meta_access(comp_ctx, inst);
+}
+
+/*
  * create a basic func_ctx enough to call aot_emit_exception.
  *
  * that is:
@@ -146,6 +232,7 @@ create_basic_func_context(const AOTCompContext *comp_ctx,
         aot_set_last_error("llvm build load failed");
         goto fail;
     }
+    aot_tag_meta_access(comp_ctx, func_ctx->aot_inst);
 
     if (comp_ctx->is_indirect_mode
         && !create_native_symbol(comp_ctx, func_ctx)) {
@@ -493,10 +580,12 @@ aot_build_precheck_function(AOTCompContext *comp_ctx, LLVMModuleRef module,
         if (!new_sp_ptr) {
             goto fail;
         }
-        if (!LLVMBuildStore(b, new_sp_ptr,
-                            func_ctx->native_stack_top_min_addr)) {
+        LLVMValueRef top_min_store =
+            LLVMBuildStore(b, new_sp_ptr, func_ctx->native_stack_top_min_addr);
+        if (!top_min_store) {
             goto fail;
         }
+        aot_tag_meta_access(comp_ctx, top_min_store);
         if (!LLVMBuildBr(b, stack_bound_check_block)) {
             goto fail;
         }
@@ -931,6 +1020,7 @@ create_argv_buf(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx)
         aot_set_last_error("llvm build load failed");
         return false;
     }
+    aot_tag_meta_access(comp_ctx, func_ctx->argv_buf);
 
     return true;
 }
@@ -954,6 +1044,7 @@ create_native_stack_bound(const AOTCompContext *comp_ctx,
         aot_set_last_error("llvm build load failed");
         return false;
     }
+    aot_tag_meta_access(comp_ctx, func_ctx->native_stack_bound);
 
     return true;
 }
@@ -1001,6 +1092,7 @@ create_aux_stack_info(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx)
         aot_set_last_error("llvm build load failed");
         return false;
     }
+    aot_tag_meta_access(comp_ctx, func_ctx->aux_stack_bound);
     if (!(func_ctx->aux_stack_bound =
               LLVMBuildZExt(comp_ctx->builder, func_ctx->aux_stack_bound,
                             I64_TYPE, "aux_stack_bound_i64"))) {
@@ -1029,6 +1121,7 @@ create_aux_stack_info(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx)
         aot_set_last_error("llvm build load failed");
         return false;
     }
+    aot_tag_meta_access(comp_ctx, func_ctx->aux_stack_bottom);
     if (!(func_ctx->aux_stack_bottom =
               LLVMBuildZExt(comp_ctx->builder, func_ctx->aux_stack_bottom,
                             I64_TYPE, "aux_stack_bottom_i64"))) {
@@ -1058,6 +1151,7 @@ create_aux_stack_frame(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx)
         aot_set_last_error("llvm build load failed");
         return false;
     }
+    aot_tag_meta_access(comp_ctx, func_ctx->cur_frame);
 
     /* Get exec_env->wasm_stack.top_boundary and its address */
     offset = I32_TEN;
@@ -1070,6 +1164,7 @@ create_aux_stack_frame(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx)
         aot_set_last_error("load wasm_stack.top_boundary failed");
         return false;
     }
+    aot_tag_meta_access(comp_ctx, func_ctx->wasm_stack_top_bound);
 
     offset = I32_ELEVEN;
     if (!(func_ctx->wasm_stack_top_ptr = LLVMBuildInBoundsGEP2(
@@ -1100,6 +1195,7 @@ create_native_symbol(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx)
         aot_set_last_error("llvm build bit cast failed");
         return false;
     }
+    aot_tag_meta_access(comp_ctx, func_ctx->native_symbol);
 
     if (!(func_ctx->native_symbol =
               LLVMBuildBitCast(comp_ctx->builder, func_ctx->native_symbol,
@@ -1271,6 +1367,7 @@ create_memory_info(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             aot_set_last_error("llvm build load failed");
             return false;
         }
+        aot_tag_meta_access(comp_ctx, shared_mem_addr);
         if (!(shared_mem_addr =
                   LLVMBuildBitCast(comp_ctx->builder, shared_mem_addr,
                                    int8_ptr_type, "shared_mem_addr_ptr"))) {
@@ -1283,6 +1380,7 @@ create_memory_info(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             aot_set_last_error("llvm build load failed");
             return false;
         }
+        aot_tag_meta_access(comp_ctx, shared_mem_addr);
         /* memories[0]->memory_data */
         offset = I32_CONST(offsetof(AOTMemoryInstance, memory_data));
         if (!(func_ctx->mem_info[0].mem_base_addr = LLVMBuildInBoundsGEP2(
@@ -1375,6 +1473,7 @@ create_memory_info(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             aot_set_last_error("llvm build load failed");
             return false;
         }
+        aot_tag_meta_access(comp_ctx, func_ctx->mem_info[0].mem_base_addr);
         if (!(func_ctx->mem_info[0].mem_cur_page_count_addr =
                   LLVMBuildLoad2(comp_ctx->builder, I32_TYPE,
                                  func_ctx->mem_info[0].mem_cur_page_count_addr,
@@ -1382,12 +1481,16 @@ create_memory_info(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             aot_set_last_error("llvm build load failed");
             return false;
         }
+        aot_tag_mem_size_access(comp_ctx,
+                                func_ctx->mem_info[0].mem_cur_page_count_addr);
         if (!(func_ctx->mem_info[0].mem_data_size_addr = LLVMBuildLoad2(
                   comp_ctx->builder, I64_TYPE,
                   func_ctx->mem_info[0].mem_data_size_addr, "mem_data_size"))) {
             aot_set_last_error("llvm build load failed");
             return false;
         }
+        aot_tag_mem_size_access(comp_ctx,
+                                func_ctx->mem_info[0].mem_data_size_addr);
     }
 #if WASM_ENABLE_SHARED_MEMORY != 0
     else if (is_shared_memory) {
@@ -1399,6 +1502,7 @@ create_memory_info(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             aot_set_last_error("llvm build load failed");
             return false;
         }
+        aot_tag_meta_access(comp_ctx, func_ctx->mem_info[0].mem_base_addr);
     }
 #endif
 
@@ -1431,6 +1535,8 @@ create_memory_info(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             aot_set_last_error("llvm build load failed");
             return false;
         }
+        aot_tag_mem_size_access(comp_ctx,
+                                func_ctx->mem_info[0].mem_bound_check_1byte);
     }
 
     offset = I32_CONST(offsetof(AOTMemoryInstance, mem_bound_check_2bytes)
@@ -1457,6 +1563,8 @@ create_memory_info(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             aot_set_last_error("llvm build load failed");
             return false;
         }
+        aot_tag_mem_size_access(comp_ctx,
+                                func_ctx->mem_info[0].mem_bound_check_2bytes);
     }
 
     offset = I32_CONST(offsetof(AOTMemoryInstance, mem_bound_check_4bytes)
@@ -1483,6 +1591,8 @@ create_memory_info(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             aot_set_last_error("llvm build load failed");
             return false;
         }
+        aot_tag_mem_size_access(comp_ctx,
+                                func_ctx->mem_info[0].mem_bound_check_4bytes);
     }
 
     offset = I32_CONST(offsetof(AOTMemoryInstance, mem_bound_check_8bytes)
@@ -1509,6 +1619,8 @@ create_memory_info(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             aot_set_last_error("llvm build load failed");
             return false;
         }
+        aot_tag_mem_size_access(comp_ctx,
+                                func_ctx->mem_info[0].mem_bound_check_8bytes);
     }
 
     offset = I32_CONST(offsetof(AOTMemoryInstance, mem_bound_check_16bytes)
@@ -1535,6 +1647,8 @@ create_memory_info(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             aot_set_last_error("llvm build load failed");
             return false;
         }
+        aot_tag_mem_size_access(comp_ctx,
+                                func_ctx->mem_info[0].mem_bound_check_16bytes);
     }
 
     return true;
@@ -1742,6 +1856,7 @@ create_func_type_indexes(const AOTCompContext *comp_ctx,
         aot_set_last_error("llvm build load failed.");
         return false;
     }
+    aot_tag_meta_access(comp_ctx, func_ctx->func_type_indexes);
     return true;
 }
 
@@ -1772,6 +1887,7 @@ create_func_ptrs(const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx)
         aot_set_last_error("llvm build load failed.");
         return false;
     }
+    aot_tag_meta_access(comp_ctx, func_ctx->func_ptrs);
 
     func_ctx->func_ptrs =
         LLVMBuildBitCast(comp_ctx->builder, func_ctx->func_ptrs,
@@ -2546,7 +2662,7 @@ jit_stack_size_callback(void *user_data, const char *name, size_t namelen,
     stack_consumption_to_call_wrapped_func =
         musttail ? 0
                  : aot_estimate_stack_usage_for_function_call(
-                     comp_ctx, func_ctx->aot_func->func_type);
+                       comp_ctx, func_ctx->aot_func->func_type);
     LOG_VERBOSE("func %.*s stack %u + %zu + %u", (int)namelen, name,
                 stack_consumption_to_call_wrapped_func, stack_size, call_size);
 
@@ -2728,6 +2844,22 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
     LLVMSetIsNewDbgInfoFormat(comp_ctx->module, true);
 #endif
 
+    /* Create the metadata for the scoped alias analysis: the module instance
+       and the exec env live in memory regions which never overlap with the
+       linear memory, so accesses to them are tagged with an alias scope and
+       accesses to the linear memory are tagged as noalias on it. Then the
+       optimizer is able to move loads from the module instance (e.g. the
+       linear memory base address, the memory size or a global) across stores
+       to the linear memory. */
+    comp_ctx->alias_scope_md_kind = LLVMGetMDKindIDInContext(
+        comp_ctx->context, "alias.scope", (unsigned)strlen("alias.scope"));
+    comp_ctx->noalias_md_kind = LLVMGetMDKindIDInContext(
+        comp_ctx->context, "noalias", (unsigned)strlen("noalias"));
+    if (!(comp_ctx->meta_scope_list = create_meta_scope_metadata(comp_ctx))) {
+        aot_set_last_error("create alias scope metadata failed.");
+        goto fail;
+    }
+
 #if WASM_ENABLE_LINUX_PERF != 0
     if (wasm_runtime_get_linux_perf()) {
         /* FramePointerKind.All */
@@ -2770,14 +2902,15 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
 
 #if WASM_ENABLE_PROFILER != 0
     if (option->enable_profiler) {
-        if (!(comp_ctx->debug_builder = LLVMCreateDIBuilder(comp_ctx->module))) {
+        if (!(comp_ctx->debug_builder =
+                  LLVMCreateDIBuilder(comp_ctx->module))) {
             aot_set_last_error("create LLVM Debug Infor builder failed.");
             goto fail;
         }
 
         LLVMAddModuleFlag(
-            comp_ctx->module, LLVMModuleFlagBehaviorWarning, "Debug Info Version",
-            strlen("Debug Info Version"),
+            comp_ctx->module, LLVMModuleFlagBehaviorWarning,
+            "Debug Info Version", strlen("Debug Info Version"),
             LLVMValueAsMetadata(LLVMConstInt(LLVMInt32Type(), 3, false)));
 
         comp_ctx->debug_file = LLVMDIBuilderCreateFile(
@@ -2842,6 +2975,9 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
 
     if (option->disable_llvm_lto)
         comp_ctx->disable_llvm_lto = true;
+
+    if (option->disable_alias_analysis)
+        comp_ctx->disable_alias_analysis = true;
 
     if (option->enable_llvm_pgo)
         comp_ctx->enable_llvm_pgo = true;

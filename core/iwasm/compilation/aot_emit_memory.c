@@ -124,6 +124,7 @@ get_memory_check_bound(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
         aot_set_last_error("llvm build load failed.");
         return NULL;
     }
+    aot_tag_mem_size_access(comp_ctx, mem_check_bound);
     return mem_check_bound;
 }
 
@@ -630,6 +631,7 @@ aot_check_memory_overflow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             aot_set_last_error("llvm build load failed.");
             goto fail;
         }
+        aot_tag_meta_access(comp_ctx, mem_base_addr);
     }
 
     aot_value_top =
@@ -889,6 +891,7 @@ fail:
             goto fail;                                                    \
         }                                                                 \
         LLVMSetAlignment(value, known_align);                             \
+        aot_tag_linear_mem_access(comp_ctx, value);                       \
     } while (0)
 
 #define BUILD_STORE()                                                   \
@@ -899,6 +902,7 @@ fail:
             goto fail;                                                  \
         }                                                               \
         LLVMSetAlignment(res, known_align);                             \
+        aot_tag_linear_mem_access(comp_ctx, res);                       \
     } while (0)
 
 #define BUILD_SIGN_EXT(dst_type)                                        \
@@ -1363,6 +1367,7 @@ get_memory_curr_page_count(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx)
             aot_set_last_error("llvm build load failed.");
             goto fail;
         }
+        aot_tag_mem_size_access(comp_ctx, mem_size);
     }
 
     return LLVMBuildIntCast(comp_ctx->builder, mem_size,
@@ -1523,6 +1528,7 @@ check_bulk_memory_overflow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             aot_set_last_error("llvm build load failed.");
             goto fail;
         }
+        aot_tag_meta_access(comp_ctx, mem_base_addr);
     }
 
     /*
@@ -1571,6 +1577,7 @@ check_bulk_memory_overflow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             aot_set_last_error("llvm build load failed.");
             goto fail;
         }
+        aot_tag_mem_size_access(comp_ctx, mem_size);
     }
 
     ADD_BASIC_BLOCK(check_succ, "check_succ");

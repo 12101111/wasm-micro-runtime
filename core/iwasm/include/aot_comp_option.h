@@ -76,6 +76,10 @@ typedef struct AOTCompOption {
     bool disable_llvm_intrinsics;
     bool disable_llvm_jump_tables;
     bool disable_llvm_lto;
+    /* Disable the alias-scope based alias analysis optimization which tells
+       the optimizer that accesses to the module instance/exec env and
+       accesses to the linear memory never alias, for debug usage only */
+    bool disable_alias_analysis;
     bool enable_llvm_pgo;
     bool enable_stack_estimation;
     bool quick_invoke_c_api_import;

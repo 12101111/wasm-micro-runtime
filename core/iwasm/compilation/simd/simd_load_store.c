@@ -34,6 +34,7 @@ simd_load(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx, uint32 align,
         HANDLE_FAILURE("LLVMBuildLoad");
         return NULL;
     }
+    aot_tag_linear_mem_access(comp_ctx, data);
 
     LLVMSetAlignment(data, 1);
 
@@ -300,6 +301,7 @@ simd_store(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx, uint32 align,
         HANDLE_FAILURE("LLVMBuildStore");
         return false;
     }
+    aot_tag_linear_mem_access(comp_ctx, result);
 
     LLVMSetAlignment(result, 1);
 

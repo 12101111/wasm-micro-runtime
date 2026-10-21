@@ -231,6 +231,7 @@ aot_check_table_access(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
         HANDLE_FAILURE("LLVMBuildLoad");
         goto fail;
     }
+    aot_tag_meta_access(comp_ctx, tbl_sz);
 
     if (!check_tbl_elem_idx_and_trunc(comp_ctx, func_ctx, &elem_idx, tbl_idx)) {
         goto fail;
@@ -311,6 +312,7 @@ aot_compile_op_table_get(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             HANDLE_FAILURE("LLVMBuildLoad");
             goto fail;
         }
+        aot_tag_meta_access(comp_ctx, table_elem);
 
         PUSH_GC_REF(table_elem);
     }
@@ -334,6 +336,7 @@ aot_compile_op_table_get(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             HANDLE_FAILURE("LLVMBuildLoad");
             goto fail;
         }
+        aot_tag_meta_access(comp_ctx, table_elem);
 
         if (!(func_idx = LLVMBuildIntCast2(comp_ctx->builder, table_elem,
                                            I32_TYPE, true, "func_idx"))) {
@@ -354,6 +357,7 @@ aot_compile_op_table_set(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
                          uint32 tbl_idx)
 {
     LLVMValueRef val = NULL, elem_idx, offset, table_elem_base, table_elem_addr;
+    LLVMValueRef table_store;
 
     if (comp_ctx->enable_gc)
         POP_GC_REF(val);
@@ -418,10 +422,12 @@ aot_compile_op_table_set(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
         }
     }
 
-    if (!(LLVMBuildStore(comp_ctx->builder, val, table_elem_addr))) {
+    if (!(table_store =
+              LLVMBuildStore(comp_ctx->builder, val, table_elem_addr))) {
         HANDLE_FAILURE("LLVMBuildStore");
         goto fail;
     }
+    aot_tag_meta_access(comp_ctx, table_store);
 
     return true;
 fail:
@@ -588,6 +594,7 @@ aot_compile_op_table_size(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
         HANDLE_FAILURE("LLVMBuildLoad");
         goto fail;
     }
+    aot_tag_meta_access(comp_ctx, tbl_sz);
 
 #if WASM_ENABLE_MEMORY64 != 0
     if (IS_TABLE64(tbl_idx)) {

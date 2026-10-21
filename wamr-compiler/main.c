@@ -189,6 +189,8 @@ print_help()
     printf("                            Use comma to separate, please refer to doc/xip.md for full list.\n");
     printf("  --disable-llvm-jump-tables Disable the LLVM jump tables similarly to clang's -fno-jump-tables\n");
     printf("  --disable-llvm-lto        Disable the LLVM link time optimization\n");
+    printf("  --disable-alias-analysis  Disable the alias analysis optimization on the module instance\n");
+    printf("                            and the exec env, for debug usage only\n");
     printf("  --enable-llvm-pgo         Enable LLVM PGO (Profile-Guided Optimization)\n");
     printf("  --enable-llvm-passes=<passes>\n");
     printf("                            Enable the specified LLVM passes, using comma to separate\n");
@@ -592,6 +594,9 @@ main(int argc, char *argv[])
         }
         else if (!strcmp(argv[0], "--disable-llvm-lto")) {
             option.disable_llvm_lto = true;
+        }
+        else if (!strcmp(argv[0], "--disable-alias-analysis")) {
+            option.disable_alias_analysis = true;
         }
         else if (!strcmp(argv[0], "--enable-llvm-pgo")) {
             option.enable_llvm_pgo = true;

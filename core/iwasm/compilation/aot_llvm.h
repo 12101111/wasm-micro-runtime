@@ -462,6 +462,10 @@ typedef struct AOTCompContext {
     /* Disable LLVM link time optimization */
     bool disable_llvm_lto;
 
+    /* Disable the alias-scope based alias analysis optimization, for debug
+       usage only */
+    bool disable_alias_analysis;
+
     /* Enable LLVM PGO (Profile-Guided Optimization) */
     bool enable_llvm_pgo;
 
@@ -507,6 +511,14 @@ typedef struct AOTCompContext {
 
     /* LLVM floating-point exception behavior metadata */
     LLVMValueRef fp_exception_behavior;
+
+    /* LLVM scoped alias analysis metadata: accesses to the module instance
+       and to the exec env are tagged with `meta_scope_list`, accesses to the
+       linear memory are tagged with `noalias` on it, so that the optimizer
+       knows that the two memory regions never alias. */
+    LLVMMetadataRef meta_scope_list;
+    unsigned alias_scope_md_kind;
+    unsigned noalias_md_kind;
 
     /* a global array to store stack sizes */
     LLVMTypeRef stack_sizes_type;
@@ -571,6 +583,27 @@ aot_compiler_destroy(void);
 
 AOTCompContext *
 aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option);
+
+/* Tag a load/store which accesses the module instance or the exec env with
+   `alias.scope` metadata */
+void
+aot_tag_meta_access(const AOTCompContext *comp_ctx, LLVMValueRef inst);
+
+/* Tag a load/store which accesses the linear memory with `noalias` metadata */
+void
+aot_tag_linear_mem_access(const AOTCompContext *comp_ctx, LLVMValueRef inst);
+
+/* Tag an access to the memory size related fields of the module instance
+   (cur_page_count, memory_data_size and mem_bound_check_*). For shared
+   memories these fields can be changed by other threads at any time, so we
+   don't apply the scoped alias analysis to them in that case. */
+void
+aot_tag_mem_size_access(const AOTCompContext *comp_ctx, LLVMValueRef inst);
+
+/* Whether the memory size related fields of memory 0 are stable within a
+   function (they can only be changed by memory.grow then) */
+bool
+aot_memory_size_is_stable(const AOTCompContext *comp_ctx);
 
 void
 aot_destroy_comp_context(AOTCompContext *comp_ctx);

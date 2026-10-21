@@ -243,6 +243,7 @@ compile_global(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             aot_set_last_error("llvm build load failed.");
             return false;
         }
+        aot_tag_meta_access(comp_ctx, global);
         /* All globals' data is 4-byte aligned */
         LLVMSetAlignment(global, 4);
         PUSH(global, global_type);
@@ -310,6 +311,7 @@ compile_global(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             aot_set_last_error("llvm build store failed.");
             return false;
         }
+        aot_tag_meta_access(comp_ctx, res);
         /* All globals' data is 4-byte aligned */
         LLVMSetAlignment(res, 4);
     }

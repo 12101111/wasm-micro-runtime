@@ -306,3 +306,21 @@ And in the host embedder:
         res_f32 = *(float *)&argv[0];
     }
 ```
+
+## 9. Alias analysis optimization on the module instance and the exec env
+
+The AOT compiler tags every access to the module instance (`AOTModuleInstance`)
+and to the exec env (`WASMExecEnv`) with `alias.scope` metadata, and every
+access to the linear memory with the corresponding `noalias` metadata. The
+optimizer (`LICM`, `GVN`, loop vectorizer, ...) can then prove that the two
+memory regions never alias, so a value read from the module instance, e.g. the
+linear memory base address, the memory size or a global, doesn't need to be
+re-read after storing to the linear memory. This mostly benefits loops which
+contain calls (a function containing any call doesn't get the values cached in
+the function prologue) and 32-bit targets, where the memory bound check value
+is also loaded from the instance on each memory access.
+
+The optimization is enabled by default and can be disabled with
+`wamrc --disable-alias-analysis`, which is mainly useful for debugging: the
+generated IR is then identical to the IR generated before this optimization
+was introduced.
