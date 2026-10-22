@@ -3204,8 +3204,17 @@ aot_compile_op_call_ref(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     }
 
     /* Set calling convention for the call with the func's calling
-       convention */
+       convention.
+       Note: `func` is a pointer value loaded from the function table, not an
+       llvm::Function, so LLVMGetFunctionCallConv() would cast it to Function
+       and trip the assertion in LLVM 23 (LLVM used to just reinterpret the
+       value). All functions WAMR generates use the C calling convention, so
+       use it explicitly. */
+#if LLVM_VERSION_MAJOR >= 23
+    LLVMSetInstructionCallConv(value_ret, LLVMCCallConv);
+#else
     LLVMSetInstructionCallConv(value_ret, LLVMGetFunctionCallConv(func));
+#endif
 
     if (tail_call)
         LLVMSetTailCall(value_ret, true);

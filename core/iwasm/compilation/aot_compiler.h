@@ -666,11 +666,16 @@ set_local_gc_ref(AOTCompFrame *frame, int n, LLVMValueRef value, uint8 ref_type)
 #define F32_PTR_TYPE_GS comp_ctx->basic_types.float32_ptr_type_gs
 #define F64_PTR_TYPE_GS comp_ctx->basic_types.float64_ptr_type_gs
 
-#define I32_CONST(v) LLVMConstInt(I32_TYPE, v, true)
-#define I64_CONST(v) LLVMConstInt(I64_TYPE, v, true)
+/* Mask the value to the target width and build it as an unsigned constant:
+ * LLVM 23 no longer tolerates implicit truncation in LLVMConstInt()
+ * (llvm/llvm-project#171456), so a value such as (uint32)0x8000_0000 or
+ * (uint8)0xff passed with sign_extend=true would trip an assertion.
+ * The resulting bit pattern is identical to the old truncating behaviour. */
+#define I32_CONST(v) LLVMConstInt(I32_TYPE, (uint32)(v), false)
+#define I64_CONST(v) LLVMConstInt(I64_TYPE, (uint64)(v), false)
 #define F32_CONST(v) LLVMConstReal(F32_TYPE, v)
 #define F64_CONST(v) LLVMConstReal(F64_TYPE, v)
-#define I8_CONST(v) LLVMConstInt(INT8_TYPE, v, true)
+#define I8_CONST(v) LLVMConstInt(INT8_TYPE, (uint8)(v), false)
 
 #define INT_CONST(variable, value, type, is_signed)        \
     do {                                                   \

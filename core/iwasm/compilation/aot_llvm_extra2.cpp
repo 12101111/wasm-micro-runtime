@@ -149,7 +149,13 @@ LLVMCreateTargetMachineWithOpts(LLVMTargetRef ctarget, const char *triple,
 
     // -fstack-usage equiv
     if (StackUsageOutput != NULL) {
+#if LLVM_VERSION_MAJOR >= 23
+        /* renamed from StackUsageOutput by
+         * https://github.com/llvm/llvm-project/pull/178898 */
+        opts.StackUsageFile = StackUsageOutput;
+#else
         opts.StackUsageOutput = StackUsageOutput;
+#endif
     }
 
     auto target = reinterpret_cast<llvm::Target *>(ctarget);
