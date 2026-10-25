@@ -155,6 +155,60 @@ os_mmap(void *hint, size_t size, int prot, int flags, os_file_handle file)
         }
     }
 
+#if (defined(BUILD_TARGET_X86_64) || defined(BUILD_TARGET_AMD_64)) \
+    && !defined(__APPLE__) && !defined(BH_PLATFORM_WINDOWS)        \
+    && !defined(BH_PLATFORM_LINUX_SGX) && defined(MAP_32BIT)
+    /* The kernel's MAP_32BIT is best-effort: some environments, e.g.
+       qemu-user, silently ignore the flag and map the memory above the
+       first 2GB. AOT data/code must be below 2GB, otherwise relocations
+       like R_X86_64_32/R_X86_64_32S can't be applied, so retry with 
+       explicit low hints before givingup.  
+       The hints are page aligned and spread over the low 2GB to
+       also work when an earlier low mapping (or a non-PIE executable)
+       occupies the previous candidate. */
+    if ((flags & MMAP_MAP_32BIT) && !(flags & MMAP_MAP_FIXED) && !hint
+        && request_size + (uint64)BH_MB <= (uint64)INT32_MAX + 1
+        && (addr == MAP_FAILED
+            || (uint64)(uintptr_t)addr + request_size
+                   > (uint64)INT32_MAX + 1)) {
+        static const uintptr_t low_hints[] = {
+            (uintptr_t)BH_MB,         (uintptr_t)(2 * BH_MB),
+            (uintptr_t)(4 * BH_MB),   (uintptr_t)(8 * BH_MB),
+            (uintptr_t)(16 * BH_MB),  (uintptr_t)(32 * BH_MB),
+            (uintptr_t)(64 * BH_MB),  (uintptr_t)(128 * BH_MB),
+            (uintptr_t)(256 * BH_MB), (uintptr_t)(512 * BH_MB),
+            (uintptr_t)BH_GB,         (uintptr_t)(1536 * BH_MB),
+        };
+        const uint64 low_limit = (uint64)INT32_MAX + 1;
+        uint32 hint_count = (uint32)(sizeof(low_hints) / sizeof(low_hints[0]));
+
+        if (addr != MAP_FAILED) {
+            /* MAP_32BIT was ignored, unmap the unusable mapping */
+            os_munmap(addr, (size_t)request_size);
+            addr = MAP_FAILED;
+        }
+
+        for (i = 0; i < hint_count; i++) {
+            uintptr_t low_hint = low_hints[i];
+
+            if ((uint64)low_hint + request_size > low_limit)
+                continue;
+
+            addr = mmap((void *)low_hint, request_size, map_prot, map_flags,
+                        file, 0);
+            if (addr == MAP_FAILED)
+                continue;
+
+            if ((uint64)(uintptr_t)addr + request_size <= low_limit)
+                break;
+
+            /* The hint was ignored or the mapping is still out of range */
+            os_munmap(addr, (size_t)request_size);
+            addr = MAP_FAILED;
+        }
+    }
+#endif /* end of BUILD_TARGET_X86_64/AMD_64 */
+
     if (addr == MAP_FAILED) {
         os_printf("mmap failed with errno: %d, hint: %p, size: %" PRIu64
                   ", prot: %d, flags: %d\n",
