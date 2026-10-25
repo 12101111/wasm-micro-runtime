@@ -16,6 +16,11 @@
 
 #define WAMR_PROFILE_OP_ENTRY_BLOCK 0x10000
 #define WAMR_PROFILE_OP_RETURN_BLOCK 0x10001
+/* The precheck wrapper has no wasm bytecode.  Give it a dedicated operator
+   line so its stack check instructions are not attributed to the previous
+   wasm operator (or to no line at all).  The value must match
+   `OperatorKind::WamrPreCheck` in the wa2x profiler.  */
+#define WAMR_PROFILE_OP_PRECHECK 0x10002
 
 /* WAMR_PROFILE_FILE_ID 255 is reserved for aot_profiler.c itself to
    avoid macro re-expansion in the wrapper implementations.  */

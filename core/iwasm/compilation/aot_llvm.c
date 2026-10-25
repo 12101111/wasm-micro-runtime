@@ -387,7 +387,6 @@ aot_build_precheck_function(AOTCompContext *comp_ctx, LLVMModuleRef module,
     LLVMValueRef *params = NULL;
 #if WASM_ENABLE_PROFILER != 0
     LLVMMetadataRef saved_debug_func = comp_ctx->current_debug_func;
-    comp_ctx->current_debug_func = NULL;
 #endif
 
     begin = LLVMAppendBasicBlockInContext(comp_ctx->context, precheck_func,
@@ -421,6 +420,15 @@ aot_build_precheck_function(AOTCompContext *comp_ctx, LLVMModuleRef module,
     func_ctx->aot_func = comp_ctx->comp_data->funcs[func_index];
 #if WASM_ENABLE_DEBUG_AOT != 0
     func_ctx->debug_func = NULL;
+#endif
+#if WASM_ENABLE_PROFILER != 0
+    /* Give the precheck wrapper its own DISubprogram and a dedicated
+       WamrPreCheck profile line.  Its instructions are generated before the
+       wrapped function's DISubprogram exists; without this they would carry
+       a stale location from the previous function and produce no DWARF line
+       at all (all of them would fall into missing_die).  */
+    wamr_profile_append_func(comp_ctx, func_ctx, NULL, WAMR_PROFILE_OP_PRECHECK,
+                             0);
 #endif
     if (!create_basic_func_context(comp_ctx, func_ctx))
         goto fail;
@@ -662,6 +670,12 @@ aot_build_precheck_function(AOTCompContext *comp_ctx, LLVMModuleRef module,
 
 #if WASM_ENABLE_PROFILER != 0
     comp_ctx->current_debug_func = saved_debug_func;
+    /* Do not let the precheck location leak into the next function (e.g. the
+       JIT wrapper) whose builder operations may run before their own
+       DISubprogram is installed.  Only profile builds install locations in
+       the precheck wrapper.  */
+    if (comp_ctx->profiler)
+        LLVMSetCurrentDebugLocation2(comp_ctx->builder, NULL);
 #endif
     return true;
 fail:
@@ -670,6 +684,8 @@ fail:
     }
 #if WASM_ENABLE_PROFILER != 0
     comp_ctx->current_debug_func = saved_debug_func;
+    if (comp_ctx->profiler)
+        LLVMSetCurrentDebugLocation2(comp_ctx->builder, NULL);
 #endif
     aot_set_last_error("failed to build precheck wrapper function.");
     return false;
@@ -2769,6 +2785,35 @@ aot_compiler_destroy(void)
     LLVMShutdown();
 }
 
+#if WASM_ENABLE_PROFILER != 0
+/*
+ * Enable the LLVM options used by profiling builds.
+ *
+ * `-pick-merged-source-locations` makes DILocation::getMergedLocation() keep
+ * one of the merged locations instead of synthesizing line 0, so instructions
+ * whose debug locations are merged by the optimizer stay attributable to a
+ * wasm operator.  wa2x enables the same option in its compiler, and the
+ * modified LLVM used here also keys additional debug-location preservation on
+ * the `wa2x.profile` module flag.
+ *
+ * LLVM options are process-global, so parse them only once, before the first
+ * profiling module is compiled.  A profiling process (wamrc) compiles modules
+ * on a single thread.
+ */
+static void
+enable_profiler_llvm_options(void)
+{
+    static bool initialized = false;
+    const char *options[] = { "wamrc", "-pick-merged-source-locations" };
+
+    if (initialized)
+        return;
+    initialized = true;
+    LLVMParseCommandLineOptions((int)(sizeof(options) / sizeof(options[0])),
+                                options, "wamrc");
+}
+#endif
+
 AOTCompContext *
 aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
 {
@@ -2904,6 +2949,10 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
 
 #if WASM_ENABLE_PROFILER != 0
     if (option->enable_profiler) {
+        /* Must happen before the target machine and the optimization pipeline
+           are created.  */
+        enable_profiler_llvm_options();
+
         if (!(comp_ctx->debug_builder =
                   LLVMCreateDIBuilder(comp_ctx->module))) {
             aot_set_last_error("create LLVM Debug Infor builder failed.");
@@ -2914,6 +2963,15 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
             comp_ctx->module, LLVMModuleFlagBehaviorWarning,
             "Debug Info Version", strlen("Debug Info Version"),
             LLVMValueAsMetadata(LLVMConstInt(LLVMInt32Type(), 3, false)));
+
+        /* Tell the modified LLVM that this module's debug locations are used
+           for profile attribution.  The same module flag is set by wa2x; the
+           LLVM patches keyed on it preserve instruction-level locations in
+           passes that would otherwise drop or merge them.  */
+        LLVMAddModuleFlag(
+            comp_ctx->module, LLVMModuleFlagBehaviorOverride, "wa2x.profile",
+            strlen("wa2x.profile"),
+            LLVMValueAsMetadata(LLVMConstInt(LLVMInt32Type(), 1, false)));
 
         comp_ctx->debug_file = LLVMDIBuilderCreateFile(
             comp_ctx->debug_builder, "module", strlen("module"), ".", 1);
