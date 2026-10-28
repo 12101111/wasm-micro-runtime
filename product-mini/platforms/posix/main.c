@@ -114,6 +114,7 @@ print_help(void)
 #endif
 #if WASM_ENABLE_PROFILER != 0
     printf("  --profiler-log-path=<path>  Set profiler log output path for classic interpreter\n");
+    printf("  --profiler-histogram     Collect all non-SIMD/threads/GC opcodes online without addresses\n");
 #endif
     printf("  --version                Show version information\n");
     return 1;
@@ -627,6 +628,7 @@ main(int argc, char *argv[])
 #endif
 #if WASM_ENABLE_PROFILER != 0
     const char *profiler_log_path = NULL;
+    bool profiler_histogram = false;
 #endif
 #if WASM_ENABLE_THREAD_MGR != 0
     int timeout_ms = -1;
@@ -812,6 +814,9 @@ main(int argc, char *argv[])
                 return print_help();
             profiler_log_path = argv[0] + 20;
         }
+        else if (!strcmp(argv[0], "--profiler-histogram")) {
+            profiler_histogram = true;
+        }
 #endif
         else if (!strcmp(argv[0], "--version")) {
             uint32 major, minor, patch;
@@ -991,8 +996,10 @@ main(int argc, char *argv[])
     if (profiler_log_path) {
         wasm_exec_env_t exec_env =
             wasm_runtime_get_exec_env_singleton(wasm_module_inst);
-        if (exec_env)
+        if (exec_env) {
+            wasm_runtime_set_profiler_histogram(exec_env, profiler_histogram);
             wasm_runtime_set_profiler_log_path(exec_env, profiler_log_path);
+        }
     }
 #endif
 

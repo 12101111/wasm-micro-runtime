@@ -165,6 +165,7 @@ typedef struct WASMExecEnv {
 #if WASM_ENABLE_PROFILER != 0
     void *profiler_logs;
     char *profiler_log_path;
+    bool profiler_histogram;
 #endif
 
     /* The WASM stack size */
@@ -329,6 +330,8 @@ wasm_exec_env_pop_jmpbuf(WASMExecEnv *exec_env);
 #if WASM_ENABLE_PROFILER != 0
 void
 wasm_runtime_set_profiler_log_path(WASMExecEnv *exec_env, const char *path);
+void
+wasm_runtime_set_profiler_histogram(WASMExecEnv *exec_env, bool histogram);
 #endif
 
 #ifdef __cplusplus

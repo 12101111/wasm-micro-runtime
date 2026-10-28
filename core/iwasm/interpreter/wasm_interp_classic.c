@@ -41,7 +41,7 @@ typedef float64 CellType_F64;
 #if WASM_ENABLE_PROFILER != 0
 #define PROFILE_OP(exec_env, op)                                               \
     do {                                                                       \
-        if ((exec_env)->profiler_logs) {                                       \
+        if ((exec_env)->profiler_logs && !(exec_env)->profiler_histogram) {                                       \
             wasm_log_append_op((exec_env)->profiler_logs, op,                  \
                                cur_func->u.func->code_offset                   \
                                    + (uint32)((frame_ip - 1)                   \
@@ -51,7 +51,7 @@ typedef float64 CellType_F64;
 
 #define PROFILE_OP_ADDR(exec_env, op, addr)                                    \
     do {                                                                       \
-        if ((exec_env)->profiler_logs) {                                       \
+        if ((exec_env)->profiler_logs && !(exec_env)->profiler_histogram) {                                       \
             wasm_log_append_op_addr(                                           \
                 (exec_env)->profiler_logs, op,                                 \
                 cur_func->u.func->code_offset                                  \
@@ -62,7 +62,7 @@ typedef float64 CellType_F64;
 
 #define PROFILE_OP_ADDR_AT(exec_env, op, addr, op_ptr)                         \
     do {                                                                       \
-        if ((exec_env)->profiler_logs) {                                       \
+        if ((exec_env)->profiler_logs && !(exec_env)->profiler_histogram) {                                       \
             wasm_log_append_op_addr(                                           \
                 (exec_env)->profiler_logs, op,                                 \
                 cur_func->u.func->code_offset                                  \
@@ -76,7 +76,7 @@ typedef float64 CellType_F64;
    the function being executed */
 #define PROFILE_OP_TARGET_AT(exec_env, op, target_ip, op_ptr)                  \
     do {                                                                       \
-        if ((exec_env)->profiler_logs) {                                       \
+        if ((exec_env)->profiler_logs && !(exec_env)->profiler_histogram) {                                       \
             wasm_log_append_op_addr(                                           \
                 (exec_env)->profiler_logs, op,                                 \
                 cur_func->u.func->code_offset                                  \
@@ -93,13 +93,55 @@ typedef float64 CellType_F64;
    no wasm bytecode */
 #define PROFILE_OP_CALL_TARGET(exec_env, op, op_offset)                        \
     do {                                                                       \
-        if ((exec_env)->profiler_logs) {                                       \
+        if ((exec_env)->profiler_logs && !(exec_env)->profiler_histogram) {                                       \
             wasm_log_append_op_addr(                                           \
                 (exec_env)->profiler_logs, op, op_offset,                      \
                 cur_func->is_import_func                                       \
                     ? (uint32)-1                                               \
                     : cur_func->u.func->code_offset);                          \
         }                                                                      \
+    } while (0)
+
+#define PROFILE_OP_HISTOGRAM_AT(exec_env, op, op_ptr)                          \
+    do {                                                                       \
+        if ((exec_env)->profiler_logs && (exec_env)->profiler_histogram) {     \
+            wasm_histogram_append_op(                                          \
+                (exec_env)->profiler_logs, op,                                 \
+                cur_func->u.func->code_offset                                  \
+                    + (uint32)((op_ptr)-cur_func->u.func->code));              \
+        }                                                                      \
+    } while (0)
+
+#if WASM_ENABLE_SIMDE != 0
+#define PROFILE_OP_IS_SIMD_INTERNAL(op)                                       \
+    ((op) >= EXT_OP_SET_LOCAL_FAST_V128 && (op) <= WASM_OP_SELECT_128)
+#else
+#define PROFILE_OP_IS_SIMD_INTERNAL(op) 0
+#endif
+#if WASM_ENABLE_DEBUG_INTERP != 0
+#define PROFILE_OP_IS_DEBUG_INTERNAL(op) ((op) == DEBUG_OP_BREAK)
+#else
+#define PROFILE_OP_IS_DEBUG_INTERNAL(op) 0
+#endif
+
+#define PROFILE_ALL_OP(exec_env, op)                                           \
+    do {                                                                       \
+        if ((exec_env)->profiler_logs && (exec_env)->profiler_histogram        \
+            && (op) != WASM_OP_MISC_PREFIX && (op) != WASM_OP_SIMD_PREFIX      \
+            && (op) != WASM_OP_ATOMIC_PREFIX && (op) != WASM_OP_GC_PREFIX      \
+            && (op) != EXT_OP_COPY_STACK_TOP                                   \
+            && (op) != EXT_OP_COPY_STACK_TOP_I64                               \
+            && (op) != EXT_OP_COPY_STACK_VALUES && (op) != WASM_OP_IMPDEP      \
+            && (op) != WASM_OP_UNUSED_0x0a && (op) != WASM_OP_UNUSED_0x16      \
+            && (op) != WASM_OP_UNUSED_0x17 && (op) != WASM_OP_UNUSED_0x27      \
+            && !PROFILE_OP_IS_SIMD_INTERNAL(op)                                \
+            && !PROFILE_OP_IS_DEBUG_INTERNAL(op)) {                            \
+            PROFILE_OP_HISTOGRAM_AT(exec_env, op, frame_ip - 1);               \
+        }                                                                      \
+    } while (0)
+#else
+#define PROFILE_ALL_OP(exec_env, op) \
+    do {                             \
     } while (0)
 #endif
 
@@ -1541,7 +1583,12 @@ wasm_interp_call_func_import(WASMModuleInstance *module_inst,
 #if WASM_ENABLE_LABELS_AS_VALUES != 0
 
 #define HANDLE_OP(opcode) HANDLE_##opcode:
-#define FETCH_OPCODE_AND_DISPATCH() goto *handle_table[*frame_ip++]
+#define FETCH_OPCODE_AND_DISPATCH()       \
+    do {                                  \
+        opcode = *frame_ip++;             \
+        PROFILE_ALL_OP(exec_env, opcode); \
+        goto *handle_table[opcode];       \
+    } while (0)
 
 #if WASM_ENABLE_THREAD_MGR != 0 && WASM_ENABLE_DEBUG_INTERP != 0
 #define HANDLE_OP_END()                                                       \
@@ -1563,7 +1610,7 @@ wasm_interp_call_func_import(WASMModuleInstance *module_inst,
             os_mutex_unlock(&exec_env->wait_lock);                            \
         }                                                                     \
         CHECK_INSTRUCTION_LIMIT();                                            \
-        goto *handle_table[*frame_ip++];                                      \
+        FETCH_OPCODE_AND_DISPATCH();                                          \
     } while (0)
 #else
 #define HANDLE_OP_END()        \
@@ -1751,6 +1798,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 #if WASM_ENABLE_LABELS_AS_VALUES == 0
     while (frame_ip < frame_ip_end) {
         opcode = *frame_ip++;
+        PROFILE_ALL_OP(exec_env, opcode);
         switch (opcode) {
 #else
     FETCH_OPCODE_AND_DISPATCH();
@@ -5955,6 +6003,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                 /* opcode1 was checked in loader and is no larger than
                    UINT8_MAX */
                 opcode = (uint8)opcode1;
+#if WASM_ENABLE_PROFILER != 0
+                PROFILE_OP_HISTOGRAM_AT(exec_env, 0xfc0000 | opcode, prefix_ptr);
+#endif
 
                 switch (opcode) {
                     case WASM_OP_I32_TRUNC_SAT_S_F32:

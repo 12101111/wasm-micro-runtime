@@ -72,11 +72,6 @@ wasm_exec_env_create_internal(struct WASMModuleInstanceCommon *module_inst,
     exec_env->module_inst = module_inst;
     exec_env->wasm_stack_size = stack_size;
 
-#if WASM_ENABLE_PROFILER != 0
-    if (exec_env->profiler_log_path) {
-        exec_env->profiler_logs = wasm_log_new();
-    }
-#endif
     exec_env->wasm_stack.bottom = exec_env->wasm_stack_u.bottom;
     exec_env->wasm_stack.top_boundary =
         exec_env->wasm_stack.bottom + stack_size;
@@ -210,24 +205,28 @@ wasm_exec_env_destroy(WASMExecEnv *exec_env)
 {
 #if WASM_ENABLE_PROFILER != 0
     if (exec_env->profiler_logs) {
-        if (exec_env->profiler_log_path) {
-            uintptr_t len = 0;
-            uint8_t *data = wasm_log_encode(exec_env->profiler_logs, &len);
-            if (data && len > 0) {
-                FILE *fp = fopen(exec_env->profiler_log_path, "wb");
-                if (fp) {
-                    fwrite(data, 1, len, fp);
-                    fclose(fp);
-                }
-            } else {
-                wasm_log_free(exec_env->profiler_logs);
+        uintptr_t len = 0;
+        /* Both encoders take ownership of the collected data, even when
+           encoding fails, so the profiler data must not be freed here
+           again. */
+        uint8_t *data =
+            exec_env->profiler_histogram
+                ? wasm_histogram_encode(exec_env->profiler_logs, &len)
+                : wasm_log_encode(exec_env->profiler_logs, &len);
+        if (data && len > 0 && exec_env->profiler_log_path) {
+            FILE *fp = fopen(exec_env->profiler_log_path, "wb");
+            if (fp) {
+                fwrite(data, 1, len, fp);
+                fclose(fp);
             }
-            if (data)
-                profile_info_encoded_free(data, len);
-            wasm_runtime_free(exec_env->profiler_log_path);
-            exec_env->profiler_log_path = NULL;
         }
+        if (data)
+            profile_info_encoded_free(data, len);
         exec_env->profiler_logs = NULL;
+    }
+    if (exec_env->profiler_log_path) {
+        wasm_runtime_free(exec_env->profiler_log_path);
+        exec_env->profiler_log_path = NULL;
     }
 #endif
 #if WASM_ENABLE_THREAD_MGR != 0
@@ -368,8 +367,20 @@ wasm_exec_env_pop_jmpbuf(WASMExecEnv *exec_env)
 
 #if WASM_ENABLE_PROFILER != 0
 void
+wasm_runtime_set_profiler_histogram(WASMExecEnv *exec_env, bool histogram)
+{
+    if (!exec_env->profiler_logs)
+        exec_env->profiler_histogram = histogram;
+}
+
+void
 wasm_runtime_set_profiler_log_path(WASMExecEnv *exec_env, const char *path)
 {
+    uint32 max_offset = 0;
+    WASMModuleInstance *module_inst =
+        (WASMModuleInstance *)exec_env->module_inst;
+    if (module_inst->module_type == Wasm_Module_Bytecode)
+        max_offset = (uint32)module_inst->module->load_size;
     if (exec_env->profiler_log_path) {
         wasm_runtime_free(exec_env->profiler_log_path);
         exec_env->profiler_log_path = NULL;
@@ -381,7 +392,10 @@ wasm_runtime_set_profiler_log_path(WASMExecEnv *exec_env, const char *path)
             bh_memcpy_s(exec_env->profiler_log_path, (uint32)(strlen(path) + 1),
                         path, (uint32)(strlen(path) + 1));
             if (!exec_env->profiler_logs) {
-                exec_env->profiler_logs = wasm_log_new();
+                exec_env->profiler_logs =
+                    exec_env->profiler_histogram
+                        ? (void *)wasm_histogram_new(max_offset)
+                        : wasm_log_new();
             }
         }
     }

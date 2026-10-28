@@ -976,6 +976,13 @@ wasm_runtime_get_exec_env_singleton(wasm_module_inst_t module_inst);
  */
 WASM_RUNTIME_API_EXTERN void
 wasm_runtime_set_profiler_log_path(wasm_exec_env_t exec_env, const char *path);
+
+/**
+ * Select online histogram collection. 
+ * This must be called before setting the profiler log path.
+ */
+WASM_RUNTIME_API_EXTERN void
+wasm_runtime_set_profiler_histogram(wasm_exec_env_t exec_env, bool histogram);
 #endif
 
 /**
