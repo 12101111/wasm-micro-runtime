@@ -553,7 +553,10 @@ init_stack_guard_pages()
 
     /* Touch each stack page to ensure that it has been mapped: the OS
        may lazily grow the stack mapping as a guard page is hit. */
+    /* The code don't work well with musl libc, and is only needed by glibc */
+#if defined(__GLIBC__)
     (void)touch_pages(stack_min_addr, page_size);
+#endif
     /* First time to call aot function, protect guard pages */
     if (os_mprotect(stack_min_addr, page_size * guard_page_count,
                     MMAP_PROT_NONE)
