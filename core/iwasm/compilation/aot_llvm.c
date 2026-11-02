@@ -2897,14 +2897,20 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
        accesses to the linear memory are tagged as noalias on it. Then the
        optimizer is able to move loads from the module instance (e.g. the
        linear memory base address, the memory size or a global) across stores
-       to the linear memory. */
-    comp_ctx->alias_scope_md_kind = LLVMGetMDKindIDInContext(
-        comp_ctx->context, "alias.scope", (unsigned)strlen("alias.scope"));
-    comp_ctx->noalias_md_kind = LLVMGetMDKindIDInContext(
-        comp_ctx->context, "noalias", (unsigned)strlen("noalias"));
-    if (!(comp_ctx->meta_scope_list = create_meta_scope_metadata(comp_ctx))) {
-        aot_set_last_error("create alias scope metadata failed.");
-        goto fail;
+       to the linear memory.
+       When the analysis is disabled, don't create the metadata at all: the
+       tagging helpers below would skip it anyway, and this keeps the module
+       completely free of alias-scope metadata. */
+    if (!option->disable_alias_analysis) {
+        comp_ctx->alias_scope_md_kind = LLVMGetMDKindIDInContext(
+            comp_ctx->context, "alias.scope", (unsigned)strlen("alias.scope"));
+        comp_ctx->noalias_md_kind = LLVMGetMDKindIDInContext(
+            comp_ctx->context, "noalias", (unsigned)strlen("noalias"));
+        if (!(comp_ctx->meta_scope_list =
+                  create_meta_scope_metadata(comp_ctx))) {
+            aot_set_last_error("create alias scope metadata failed.");
+            goto fail;
+        }
     }
 
 #if WASM_ENABLE_LINUX_PERF != 0
