@@ -16,6 +16,10 @@
 #include "gc/gc_object.h"
 #endif
 
+#if defined(OS_ENABLE_HW_BOUND_CHECK) && defined(OS_ENABLE_SJLJ_TRAP)
+#error "OS_ENABLE_HW_BOUND_CHECK and OS_ENABLE_SJLJ_TRAP are mutually exclusive"
+#endif
+
 #if WASM_ENABLE_LIBC_WASI != 0
 #if WASM_ENABLE_UVWASI == 0
 #include "posix.h"

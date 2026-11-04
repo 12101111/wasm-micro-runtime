@@ -2416,6 +2416,53 @@ aot_lookup_function(const AOTModuleInstance *module_inst, const char *name)
                    sizeof(AOTFunctionInstance), cmp_func_inst);
 }
 
+#ifdef OS_ENABLE_SJLJ_TRAP
+static bool
+invoke_native_with_sjlj_trap(WASMExecEnv *exec_env, void *func_ptr,
+                             const WASMFuncType *func_type,
+                             const char *signature, void *attachment,
+                             uint32 *argv, uint32 argc, uint32 *argv_ret)
+{
+    AOTModuleInstance *module_inst = (AOTModuleInstance *)exec_env->module_inst;
+    WASMJmpBuf jmpbuf_node = { 0 }, *jmpbuf_node_pop;
+    bool ret;
+
+    if (!wasm_runtime_detect_native_stack_overflow(exec_env)) {
+        return false;
+    }
+
+    wasm_exec_env_push_jmpbuf(exec_env, &jmpbuf_node);
+
+    if (os_setjmp(jmpbuf_node.jmpbuf) == 0) {
+#if WASM_ENABLE_QUICK_AOT_ENTRY != 0
+        if (!signature && func_type->quick_aot_entry) {
+            void (*invoke_native)(void *func_ptr, void *exec_env, uint32 *argv,
+                                  uint32 *argv_ret) =
+                func_type->quick_aot_entry;
+            exec_env->attachment = attachment;
+            invoke_native(func_ptr, exec_env, argv, argv_ret);
+            exec_env->attachment = NULL;
+            ret = !aot_copy_exception(module_inst, NULL);
+        }
+        else
+#endif
+        {
+            ret = wasm_runtime_invoke_native(exec_env, func_ptr, func_type,
+                                             signature, attachment, argv, argc,
+                                             argv_ret);
+        }
+    }
+    else {
+        ret = false;
+    }
+
+    jmpbuf_node_pop = wasm_exec_env_pop_jmpbuf(exec_env);
+    bh_assert(&jmpbuf_node == jmpbuf_node_pop);
+    (void)jmpbuf_node_pop;
+    return ret;
+}
+#endif
+
 #ifdef OS_ENABLE_HW_BOUND_CHECK
 static bool
 invoke_native_with_hw_bound_check(WASMExecEnv *exec_env, void *func_ptr,
@@ -2506,8 +2553,13 @@ invoke_native_with_hw_bound_check(WASMExecEnv *exec_env, void *func_ptr,
     (void)jmpbuf_node_pop;
     return ret;
 }
+#endif
+
+#if defined(OS_ENABLE_HW_BOUND_CHECK)
 #define invoke_native_internal invoke_native_with_hw_bound_check /* NOLINT */
-#else /* else of OS_ENABLE_HW_BOUND_CHECK */
+#elif defined(OS_ENABLE_SJLJ_TRAP)
+#define invoke_native_internal invoke_native_with_sjlj_trap /* NOLINT */
+#else
 static inline bool
 invoke_native_internal(WASMExecEnv *exec_env, void *func_ptr,
                        const WASMFuncType *func_type, const char *signature,
@@ -2528,7 +2580,7 @@ invoke_native_internal(WASMExecEnv *exec_env, void *func_ptr,
     return wasm_runtime_invoke_native(exec_env, func_ptr, func_type, signature,
                                       attachment, argv, argc, argv_ret);
 }
-#endif /* end of OS_ENABLE_HW_BOUND_CHECK */
+#endif
 
 #ifdef AOT_STACK_FRAME_DEBUG
 typedef void (*stack_frame_callback_t)(struct WASMExecEnv *exec_env);
@@ -2779,13 +2831,37 @@ aot_set_exception(AOTModuleInstance *module_inst, const char *exception)
     wasm_set_exception(module_inst, exception);
 }
 
+#ifdef OS_ENABLE_SJLJ_TRAP
+/* Set the exception id (unless it is EXCE_ALREADY_THROWN) and longjmp to the
+   top jmpbuf of the given exec_env, if any. Internal helper of
+   aot_set_exception_with_id(), not part of the runtime-callable ABI. */
+static void
+aot_throw_exception_with_id(WASMExecEnv *exec_env, uint32 id)
+{
+    if (!exec_env)
+        return;
+
+    AOTModuleInstance *module_inst = (AOTModuleInstance *)exec_env->module_inst;
+
+    if (id != EXCE_ALREADY_THROWN)
+        wasm_set_exception_with_id(module_inst, id);
+    if (exec_env->jmpbuf_stack_top)
+        os_longjmp(exec_env->jmpbuf_stack_top->jmpbuf, 1);
+}
+#endif
+
 void
 aot_set_exception_with_id(AOTModuleInstance *module_inst, uint32 id)
 {
+#if defined(OS_ENABLE_HW_BOUND_CHECK)
     if (id != EXCE_ALREADY_THROWN)
         wasm_set_exception_with_id(module_inst, id);
-#ifdef OS_ENABLE_HW_BOUND_CHECK
     wasm_runtime_access_exce_check_guard_page();
+#elif defined(OS_ENABLE_SJLJ_TRAP)
+    aot_throw_exception_with_id(module_inst->cur_exec_env, id);
+#else
+    if (id != EXCE_ALREADY_THROWN)
+        wasm_set_exception_with_id(module_inst, id);
 #endif
 }
 
@@ -3277,9 +3353,12 @@ aot_invoke_native(WASMExecEnv *exec_env, uint32 func_idx, uint32 argc,
     }
 
 fail:
-#ifdef OS_ENABLE_HW_BOUND_CHECK
+#if defined(OS_ENABLE_HW_BOUND_CHECK)
     if (!ret)
         wasm_runtime_access_exce_check_guard_page();
+#elif defined(OS_ENABLE_SJLJ_TRAP)
+    if (!ret && exec_env && exec_env->jmpbuf_stack_top)
+        os_longjmp(exec_env->jmpbuf_stack_top->jmpbuf, 1);
 #endif
     return ret;
 }
@@ -3488,8 +3567,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
     }
 
 fail:
-#ifdef OS_ENABLE_HW_BOUND_CHECK
+#if defined(OS_ENABLE_HW_BOUND_CHECK)
     wasm_runtime_access_exce_check_guard_page();
+#elif defined(OS_ENABLE_SJLJ_TRAP)
+    if (exec_env && exec_env->jmpbuf_stack_top)
+        os_longjmp(exec_env->jmpbuf_stack_top->jmpbuf, 1);
 #endif
     return false;
 }
@@ -3504,9 +3586,15 @@ aot_check_app_addr_and_convert(AOTModuleInstance *module_inst, bool is_str,
     ret = wasm_check_app_addr_and_convert(module_inst, is_str, app_buf_addr,
                                           app_buf_size, p_native_addr);
 
-#ifdef OS_ENABLE_HW_BOUND_CHECK
+#if defined(OS_ENABLE_HW_BOUND_CHECK)
     if (!ret)
         wasm_runtime_access_exce_check_guard_page();
+#elif defined(OS_ENABLE_SJLJ_TRAP)
+    if (!ret) {
+        WASMExecEnv *exec_env = module_inst->cur_exec_env;
+        if (exec_env && exec_env->jmpbuf_stack_top)
+            os_longjmp(exec_env->jmpbuf_stack_top->jmpbuf, 1);
+    }
 #endif
 
     return ret;
@@ -3560,11 +3648,18 @@ aot_memory_init(AOTModuleInstance *module_inst, uint32 seg_index, uint32 offset,
     }
 
     if (!wasm_runtime_validate_app_addr((WASMModuleInstanceCommon *)module_inst,
-                                        (uint64)dst, (uint64)len))
+                                        (uint64)dst, (uint64)len)) {
+        /* The exception string has been set by the validation; raise it so
+           that HW-bound-check/SJLJ runtimes unwind immediately. */
+        aot_set_exception_with_id(module_inst, EXCE_ALREADY_THROWN);
         return false;
+    }
 
     if ((uint64)offset + (uint64)len > seg_len) {
         aot_set_exception(module_inst, "out of bounds memory access");
+        /* Same as above: don't just return to the caller with an exception
+           pending, otherwise trap-check-disabled code continues executing. */
+        aot_set_exception_with_id(module_inst, EXCE_ALREADY_THROWN);
         return false;
     }
 

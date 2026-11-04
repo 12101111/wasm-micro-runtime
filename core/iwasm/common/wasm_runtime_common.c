@@ -7368,9 +7368,15 @@ wasm_runtime_quick_invoke_c_api_native(WASMModuleInstanceCommon *inst_comm,
     }
 
 fail:
-#ifdef OS_ENABLE_HW_BOUND_CHECK
+#if defined(OS_ENABLE_HW_BOUND_CHECK)
     if (!ret)
         wasm_runtime_access_exce_check_guard_page();
+#elif defined(OS_ENABLE_SJLJ_TRAP) && WASM_ENABLE_AOT != 0
+    if (!ret) {
+        WASMExecEnv *exec_env = module_inst->cur_exec_env;
+        if (exec_env && exec_env->jmpbuf_stack_top)
+            os_longjmp(exec_env->jmpbuf_stack_top->jmpbuf, 1);
+    }
 #endif
     return ret;
 }

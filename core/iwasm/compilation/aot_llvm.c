@@ -3087,7 +3087,11 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
 #ifndef OS_ENABLE_HW_BOUND_CHECK
         /* Hardware memory traps are unavailable, use software checks */
         comp_ctx->enable_memory_bound_check = true;
+#ifdef OS_ENABLE_SJLJ_TRAP
+        comp_ctx->enable_trap_check = false;
+#else
         comp_ctx->enable_trap_check = true;
+#endif
         comp_ctx->enable_stack_bound_check = true;
 #else
         comp_ctx->enable_memory_bound_check = false;
@@ -3596,6 +3600,9 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
         && is_memory64) {
         /* For memory64, the boundary check default value is true */
         comp_ctx->enable_memory_bound_check = true;
+        /* Memory64 can only use software bounds checks */
+        if (option->trap_checks != 0 && option->trap_checks != 1)
+            comp_ctx->enable_trap_check = true;
     }
 
     /* Return error if SIMD is disabled by command line but SIMD instructions
