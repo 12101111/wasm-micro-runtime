@@ -417,8 +417,11 @@ typedef struct AOTCompContext {
     /* Bulk memory feature */
     bool enable_bulk_memory;
 
-    /* Boundary Check */
-    bool enable_bound_check;
+    /* Memory boundary Check */
+    bool enable_memory_bound_check;
+
+    /* Exception return and call-site checks */
+    bool enable_trap_check;
 
     /* Native stack boundary Check */
     bool enable_stack_bound_check;

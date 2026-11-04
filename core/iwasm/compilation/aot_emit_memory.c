@@ -778,7 +778,7 @@ aot_check_memory_overflow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     }
 #endif
 
-    if (comp_ctx->enable_bound_check
+    if (comp_ctx->enable_memory_bound_check
         && !(is_local_of_aot_value
              && aot_checked_addr_list_find(func_ctx, local_idx_of_aot_value,
                                            offset, bytes))) {

@@ -147,8 +147,10 @@ print_help()
     printf("                              which make the compiled AOT module incompatible\n");
     printf("                              with a runtime without the hardware bounds checks.\n");
     printf("  --stack-bounds-checks=1/0 Enable or disable the bounds checks for native stack:\n");
-    printf("                              if the option isn't set, the status is same as `--bounds-check`,\n");
-    printf("                              if the option is set, the status is same as the option value\n");
+    printf("                              if the option isn't set, the status depends on the platform\n");
+    printf("  --trap-checks=1/0         Enable or disable exception return and call-site checks:\n");
+    printf("                              if the option isn't set, the status depends on the platform;\n");
+    printf("                              disabling requires runtime hardware bounds check support\n");
     printf("  --stack-usage=<file>      Generate a stack-usage file.\n");
     printf("                              Similarly to `clang -fstack-usage`.\n");
     printf("  --format=<format>         Specifies the format of the output file\n");
@@ -421,6 +423,8 @@ main(int argc, char *argv[])
     option.bounds_checks = 2;
     /* default value, enable or disable depends on the platform */
     option.stack_bounds_checks = 2;
+    /* default value, enable or disable depends on the platform */
+    option.trap_checks = 2;
     option.enable_simd = true;
     option.enable_aux_stack_check = true;
     option.enable_bulk_memory = true;
@@ -492,6 +496,9 @@ main(int argc, char *argv[])
         }
         else if (!strncmp(argv[0], "--stack-bounds-checks=", 22)) {
             option.stack_bounds_checks = (atoi(argv[0] + 22) == 1) ? 1 : 0;
+        }
+        else if (!strncmp(argv[0], "--trap-checks=", 14)) {
+            option.trap_checks = (atoi(argv[0] + 14) == 1) ? 1 : 0;
         }
         else if (!strncmp(argv[0], "--stack-usage=", 14)) {
             option.stack_usage_file = argv[0] + 14;

@@ -3085,14 +3085,13 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
         comp_ctx->is_jit_mode = true;
 
 #ifndef OS_ENABLE_HW_BOUND_CHECK
-        comp_ctx->enable_bound_check = true;
-        /* Always enable stack boundary check if `bounds-checks`
-           is enabled */
+        /* Hardware memory traps are unavailable, use software checks */
+        comp_ctx->enable_memory_bound_check = true;
+        comp_ctx->enable_trap_check = true;
         comp_ctx->enable_stack_bound_check = true;
 #else
-        comp_ctx->enable_bound_check = false;
-        /* When `bounds-checks` is disabled, we set stack boundary
-           check status according to the compilation option */
+        comp_ctx->enable_memory_bound_check = false;
+        comp_ctx->enable_trap_check = false;
 #if WASM_DISABLE_STACK_HW_BOUND_CHECK != 0
         /* Native stack overflow check with hardware trap is disabled,
            we need to enable the check by LLVM JITed/AOTed code */
@@ -3428,20 +3427,18 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
         get_target_arch_from_triple(triple_norm, comp_ctx->target_arch,
                                     sizeof(comp_ctx->target_arch));
 
+        bool default_bound_check =
+            !(strstr(comp_ctx->target_arch, "64")
+              && !option->is_sgx_platform);
+
         if (option->bounds_checks == 1 || option->bounds_checks == 0) {
             /* Set by the user */
-            comp_ctx->enable_bound_check =
+            comp_ctx->enable_memory_bound_check =
                 (option->bounds_checks == 1) ? true : false;
         }
         else {
             /* Unset by the user, use the default value */
-            if (strstr(comp_ctx->target_arch, "64")
-                && !option->is_sgx_platform) {
-                comp_ctx->enable_bound_check = false;
-            }
-            else {
-                comp_ctx->enable_bound_check = true;
-            }
+            comp_ctx->enable_memory_bound_check = default_bound_check;
         }
 
         if (option->stack_bounds_checks == 1
@@ -3451,9 +3448,18 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
                 (option->stack_bounds_checks == 1) ? true : false;
         }
         else {
-            /* Unset by the user, use the default value, it will be the same
-             * value as the bound check */
-            comp_ctx->enable_stack_bound_check = comp_ctx->enable_bound_check;
+            /* Unset by the user, use the default value */
+            comp_ctx->enable_stack_bound_check = default_bound_check;
+        }
+
+        if (option->trap_checks == 1 || option->trap_checks == 0) {
+            /* Set by the user */
+            comp_ctx->enable_trap_check =
+                (option->trap_checks == 1) ? true : false;
+        }
+        else {
+            /* Unset by the user, use the default value */
+            comp_ctx->enable_trap_check = default_bound_check;
         }
 
         if ((comp_ctx->enable_stack_bound_check
@@ -3589,7 +3595,7 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
     if (!(option->bounds_checks == 1 || option->bounds_checks == 0)
         && is_memory64) {
         /* For memory64, the boundary check default value is true */
-        comp_ctx->enable_bound_check = true;
+        comp_ctx->enable_memory_bound_check = true;
     }
 
     /* Return error if SIMD is disabled by command line but SIMD instructions
